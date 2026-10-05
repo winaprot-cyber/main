@@ -94,6 +94,9 @@ export default function App() {
   const [selectedWeekStart, setSelectedWeekStart] = useState(() => localStorage.getItem('asistencia_hl_selected_week_start') || format(startOfMonth(new Date()), 'yyyy-MM-dd'));
   const [selectedWeekEnd, setSelectedWeekEnd] = useState(() => localStorage.getItem('asistencia_hl_selected_week_end') || format(endOfMonth(new Date()), 'yyyy-MM-dd'));
   
+  // Expandible states for Pay tab
+  const [expandedWeekIndex, setExpandedWeekIndex] = useState<number | null>(null);
+  
   // Decimo states
   const DECIMO_MONTHS = ['Diciembre', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre'];
   const [decimoValues, setDecimoValues] = useState<number[]>(() => {
@@ -801,20 +804,31 @@ export default function App() {
               <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><i className="fas fa-clock text-amber-400"></i>Detalle de Horas Extras por Semana</h3>
               <div className="space-y-3">
                 {weeksInRange.map((week, index) => (
-                  <div key={index} className="bg-slate-700/30 rounded-xl p-4 border border-slate-600/30">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs bg-amber-500/20 text-amber-300 px-2 py-1 rounded-full border border-amber-500/30">Sem {week.weekNumber}</span>
-                        <span className="text-sm text-slate-300">{format(week.startDate, 'dd MMM', { locale: es })} - {format(week.endDate, 'dd MMM', { locale: es })}</span>
+                  <div key={index} className="bg-slate-700/30 rounded-xl border border-slate-600/30 overflow-hidden">
+                    <div 
+                      className="p-4 cursor-pointer hover:bg-slate-700/50 transition-all"
+                      onClick={() => setExpandedWeekIndex(expandedWeekIndex === index ? null : index)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs bg-amber-500/20 text-amber-300 px-2 py-1 rounded-full border border-amber-500/30">Sem {week.weekNumber}</span>
+                          <span className="text-sm text-slate-300">{format(week.startDate, 'dd MMM', { locale: es })} - {format(week.endDate, 'dd MMM', { locale: es })}</span>
+                          {week.records.length > 0 && (
+                            <span className="text-xs text-slate-500">({week.records.length} registros)</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-lg font-bold text-green-400">${week.extraPay.toFixed(2)}</span>
+                          <i className={`fas fa-chevron-${expandedWeekIndex === index ? 'up' : 'down'} text-slate-400`}></i>
+                        </div>
                       </div>
-                      <span className="text-lg font-bold text-green-400">${week.extraPay.toFixed(2)}</span>
                     </div>
-                    {week.records.length > 0 && (
-                      <div className="mt-2 pt-2 border-t border-slate-600/30">
-                        <div className="text-xs text-slate-400 mb-1">Registros:</div>
+                    {expandedWeekIndex === index && week.records.length > 0 && (
+                      <div className="px-4 pb-4 pt-2 border-t border-slate-600/30 bg-slate-800/50">
+                        <div className="text-xs text-slate-400 mb-2">Registros:</div>
                         <div className="space-y-1">
                           {week.records.map(record => (
-                            <div key={record.id} className="flex justify-between text-xs bg-slate-800/50 rounded p-2">
+                            <div key={record.id} className="flex justify-between text-xs bg-slate-700/50 rounded p-2">
                               <span className="text-slate-300">{format(parseISO(record.date), 'dd/MM')} - {getDayOfWeekName(record.date)}{record.isHoliday && <span className="ml-1 text-amber-400">(Feriado)</span>}</span>
                               <span className="text-slate-400">{record.hoursWorked}h</span>
                             </div>
@@ -845,17 +859,35 @@ export default function App() {
                 <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><i className="fas fa-gift text-green-400"></i>Detalle de Bonos</h3>
                 <div className="space-y-2">
                   {storage.bonuses.map(bonus => (
-                    <div key={bonus.id} className="bg-slate-700/30 rounded-xl p-3 border border-slate-600/30 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${bonus.type === 'fixed' ? 'bg-green-500/20 border border-green-500/30' : bonus.type === 'variable' ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-amber-500/20 border border-amber-500/30'}`}>
-                          <i className={`fas ${bonus.type === 'fixed' ? 'fa-lock text-green-400' : bonus.type === 'variable' ? 'fa-chart-line text-amber-400' : 'fa-piggy-bank text-amber-400'} text-sm`}></i>
+                    <div key={bonus.id} className="bg-slate-700/30 rounded-xl border border-slate-600/30 overflow-hidden">
+                      <div 
+                        className="p-3 flex items-center justify-between cursor-pointer hover:bg-slate-700/50 transition-all"
+                        onClick={() => setExpandedBonusId(expandedBonusId === bonus.id ? null : bonus.id)}
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${bonus.type === 'fixed' ? 'bg-green-500/20 border border-green-500/30' : bonus.type === 'variable' ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-amber-500/20 border border-amber-500/30'}`}>
+                            <i className={`fas ${bonus.type === 'fixed' ? 'fa-lock text-green-400' : bonus.type === 'variable' ? 'fa-chart-line text-amber-400' : 'fa-piggy-bank text-amber-400'} text-sm`}></i>
+                          </div>
+                          <div>
+                            <div className="font-medium text-white text-sm">{bonus.name}</div>
+                            <div className="text-xs text-slate-400">{bonus.type === 'fixed' ? 'Fijo' : bonus.type === 'variable' ? 'Variable' : 'Fondo de Reserva'}</div>
+                          </div>
                         </div>
-                        <div>
-                          <div className="font-medium text-white text-sm">{bonus.name}</div>
-                          <div className="text-xs text-slate-400">{bonus.type === 'fixed' ? 'Fijo' : bonus.type === 'variable' ? 'Variable' : 'Fondo de Reserva'}</div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-lg font-bold text-green-400">${bonus.amount.toFixed(2)}</div>
+                          <i className={`fas fa-chevron-${expandedBonusId === bonus.id ? 'up' : 'down'} text-slate-400`}></i>
                         </div>
                       </div>
-                      <div className="text-lg font-bold text-green-400">${bonus.amount.toFixed(2)}</div>
+                      {expandedBonusId === bonus.id && (
+                        <div className="px-3 pb-3 pt-2 border-t border-slate-600/30 bg-slate-800/50">
+                          <div className="space-y-2 text-sm">
+                            <div className="flex justify-between"><span className="text-slate-400">Tipo:</span><span className="text-white font-medium">{bonus.type === 'fixed' ? 'Fijo (mensual)' : bonus.type === 'variable' ? 'Variable' : 'Fondo de Reserva (8.33%)'}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-400">Monto:</span><span className="text-green-400 font-bold">${bonus.amount.toFixed(2)}</span></div>
+                            {bonus.description && <div className="flex justify-between"><span className="text-slate-400">Descripción:</span><span className="text-white">{bonus.description}</span></div>}
+                            <div className="flex justify-between"><span className="text-slate-400">Fecha inicio:</span><span className="text-white">{format(parseISO(bonus.startDate), 'dd/MM/yyyy')}</span></div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                   <div className="pt-2 border-t border-slate-700">
@@ -874,25 +906,49 @@ export default function App() {
                 <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><i className="fas fa-hand-holding-usd text-rose-400"></i>Detalle de Descuentos</h3>
                 <div className="space-y-2">
                   {storage.discounts.map(discount => (
-                    <div key={discount.id} className="bg-slate-700/30 rounded-xl p-3 border border-slate-600/30">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-rose-500/20 border border-rose-500/30">
-                            <i className="fas fa-hand-holding-usd text-rose-400 text-sm"></i>
+                    <div key={discount.id} className="bg-slate-700/30 rounded-xl border border-slate-600/30 overflow-hidden">
+                      <div 
+                        className="p-3 cursor-pointer hover:bg-slate-700/50 transition-all"
+                        onClick={() => setExpandedDiscountId(expandedDiscountId === discount.id ? null : discount.id)}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-rose-500/20 border border-rose-500/30">
+                              <i className="fas fa-hand-holding-usd text-rose-400 text-sm"></i>
+                            </div>
+                            <div>
+                              <div className="font-medium text-white text-sm">{discount.name}</div>
+                              <div className="text-xs text-slate-400">{discount.type}</div>
+                            </div>
                           </div>
-                          <div>
-                            <div className="font-medium text-white text-sm">{discount.name}</div>
-                            <div className="text-xs text-slate-400">{discount.type}</div>
+                          <div className="flex items-center gap-3">
+                            <div className="text-right">
+                              <div className="text-lg font-bold text-rose-400">${discount.paymentAmount.toFixed(2)}</div>
+                              <div className="text-xs text-slate-500">{discount.completedPayments}/{discount.totalPayments} pagos</div>
+                            </div>
+                            <i className={`fas fa-chevron-${expandedDiscountId === discount.id ? 'up' : 'down'} text-slate-400`}></i>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <div className="text-lg font-bold text-rose-400">${discount.paymentAmount.toFixed(2)}</div>
-                          <div className="text-xs text-slate-500">{discount.completedPayments}/{discount.totalPayments} pagos</div>
+                        <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                          <div className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full transition-all" style={{ width: `${(discount.completedPayments / discount.totalPayments) * 100}%` }}></div>
                         </div>
                       </div>
-                      <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                        <div className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full transition-all" style={{ width: `${(discount.completedPayments / discount.totalPayments) * 100}%` }}></div>
-                      </div>
+                      {expandedDiscountId === discount.id && (
+                        <div className="px-3 pb-3 pt-2 border-t border-slate-600/30 bg-slate-800/50">
+                          <div className="space-y-2 text-sm">
+                            <div className="flex justify-between"><span className="text-slate-400">Tipo:</span><span className="text-white font-medium">{discount.type === 'loan' ? 'Préstamo' : discount.type === 'rol' ? 'Rol de Pagos' : discount.type === 'quirurgico' ? 'Quirúrgico' : discount.type === 'iess' ? 'IESS Salud Cónyuge' : discount.type === 'iess_aporte' ? 'Aporte Personal IESS' : 'Otro'}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-400">Monto Total:</span><span className="text-white font-bold">${discount.totalAmount.toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-400">Total Pagos:</span><span className="text-white">{discount.totalPayments}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-400">Monto por Pago:</span><span className="text-rose-400 font-bold">${discount.paymentAmount.toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-400">Pagos Completados:</span><span className="text-green-400">{discount.completedPayments}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-400">Pagos Pendientes:</span><span className="text-rose-400">{discount.totalPayments - discount.completedPayments}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-400">Total Pagado:</span><span className="text-green-400 font-bold">${(discount.completedPayments * discount.paymentAmount).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-400">Total Pendiente:</span><span className="text-rose-400 font-bold">${(discount.totalAmount - (discount.completedPayments * discount.paymentAmount)).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-400">Progreso:</span><span className="text-cyan-400 font-bold">{((discount.completedPayments / discount.totalPayments) * 100).toFixed(1)}%</span></div>
+                            {discount.notes && <div className="pt-2 border-t border-slate-700/50"><span className="text-slate-400 text-xs">Notas:</span><p className="text-white text-xs mt-1">{discount.notes}</p></div>}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                   <div className="pt-2 border-t border-slate-700">
