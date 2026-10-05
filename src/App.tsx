@@ -256,6 +256,82 @@ export default function App() {
     });
   })();
   
+  // Monthly chart data
+  const monthlyChartData = (() => {
+    const now = new Date();
+    const monthStart = startOfMonth(now);
+    const monthEnd = endOfMonth(now);
+    const weeks: { week: string; hours: number; target: number }[] = [];
+    let current = monthStart;
+    let weekNum = 1;
+    while (current <= monthEnd) {
+      const wStart = startOfWeek(current, { weekStartsOn: 1 });
+      const wEnd = endOfWeek(current, { weekStartsOn: 1 });
+      const weekRecords = storage.records.filter(r => {
+        const rDate = parseISO(r.date);
+        return isWithinInterval(rDate, { start: wStart, end: wEnd });
+      });
+      const hours = weekRecords.reduce((sum, r) => sum + r.hoursWorked, 0);
+      weeks.push({ week: `Sem ${weekNum}`, hours: Math.round(hours * 100) / 100, target: 45 });
+      current = addWeeks(current, 1);
+      weekNum++;
+    }
+    return weeks;
+  })();
+  
+  // Quarterly chart data
+  const quarterlyChartData = (() => {
+    const now = new Date();
+    const months: { month: string; hours: number; target: number }[] = [];
+    for (let i = 2; i >= 0; i--) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const monthStart = startOfMonth(date);
+      const monthEnd = endOfMonth(date);
+      const monthRecords = storage.records.filter(r => {
+        const rDate = parseISO(r.date);
+        return isWithinInterval(rDate, { start: monthStart, end: monthEnd });
+      });
+      const hours = monthRecords.reduce((sum, r) => sum + r.hoursWorked, 0);
+      months.push({ month: format(date, 'MMM', { locale: es }), hours: Math.round(hours * 100) / 100, target: 180 });
+    }
+    return months;
+  })();
+  
+  // Auto-update decimo on day 1 of each month
+  useEffect(() => {
+    const today = new Date();
+    if (today.getDate() === 1) {
+      const lastProcessed = localStorage.getItem('asistencia_hl_decimo_last_processed');
+      const currentMonth = format(today, 'yyyy-MM');
+      if (lastProcessed !== currentMonth) {
+        // Calculate previous month net income
+        const prevMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const prevMonthStart = startOfMonth(prevMonth);
+        const prevMonthEnd = endOfMonth(prevMonth);
+        const prevMonthRecords = storage.records.filter(r => {
+          const rDate = parseISO(r.date);
+          return rDate >= prevMonthStart && rDate <= prevMonthEnd;
+        });
+        let prevExtraPay = 0;
+        prevMonthRecords.forEach(record => {
+          const day = parseISO(record.date).getDay();
+          const isWeekday = day >= 1 && day <= 5;
+          if (record.isHoliday) prevExtraPay += record.hoursWorked * rate100;
+          else if (!isWeekday) prevExtraPay += record.hoursWorked * rate100;
+          else if (record.hoursWorked > 9) prevExtraPay += (record.hoursWorked - 9) * rate50;
+        });
+        const prevNetIncome = salary + prevExtraPay;
+        // Update decimo values
+        const prevMonthIndex = prevMonth.getMonth();
+        const decimoIndex = prevMonthIndex === 11 ? 0 : prevMonthIndex + 1;
+        const newValues = [...decimoValues];
+        newValues[decimoIndex] = prevNetIncome;
+        setDecimoValues(newValues);
+        localStorage.setItem('asistencia_hl_decimo_last_processed', currentMonth);
+      }
+    }
+  }, [salary, rate100, rate50, storage.records, decimoValues]);
+  
   // Totals
   const totalExpenses = storage.personalExpenses.reduce((sum, e) => sum + e.amount, 0);
   const totalPaidExpenses = storage.personalExpenses.reduce((sum, e) => sum + (e.paidAmount || 0), 0);
@@ -384,6 +460,24 @@ export default function App() {
               )}
             </div>
 
+            {/* Weekly Chart */}
+            <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50">
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><i className="fas fa-chart-bar text-blue-400"></i>Horas por Día (Semana Actual)</h3>
+              <div className="h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={weeklyChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(100,116,139,0.2)" />
+                    <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                    <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                    <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(100,116,139,0.3)', borderRadius: '12px', color: '#e2e8f0' }} formatter={(value: number) => [`${value}h`, 'Horas']} />
+                    <ReferenceLine y={9} stroke="#f59e0b" strokeDasharray="3 3" />
+                    <Bar dataKey="hours" fill="url(#barGradientHome)" radius={[6, 6, 0, 0]} />
+                    <defs><linearGradient id="barGradientHome" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#3b82f6" /><stop offset="100%" stopColor="#06b6d4" /></linearGradient></defs>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
             {/* Record Form */}
             {!showRecordForm ? (
               <button onClick={() => setShowRecordForm(true)} className="w-full py-4 bg-gradient-to-r from-blue-600 to-cyan-500 rounded-2xl font-semibold shadow-lg flex items-center justify-center gap-2"><i className="fas fa-plus"></i>Registrar Asistencia</button>
@@ -439,8 +533,32 @@ export default function App() {
         {activeTab === 'reports' && (
           <div className="space-y-6">
             <h2 className="text-lg font-semibold flex items-center gap-2"><i className="fas fa-chart-bar text-cyan-400"></i>Reportes</h2>
+            
+            {/* Proyección de Horas */}
             <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50">
-              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><i className="fas fa-chart-bar text-blue-400"></i>Horas por Día (Semana Actual)</h3>
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><i className="fas fa-chart-line text-purple-400"></i>Proyección de Horas</h3>
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="bg-blue-500/10 rounded-xl p-3 border border-blue-500/20 text-center">
+                  <div className="text-2xl font-bold text-blue-400">{weeklySummary.totalHours}h</div>
+                  <div className="text-xs text-slate-400 mt-1">Semanal</div>
+                  <div className="text-xs text-slate-500">Meta: 45h</div>
+                </div>
+                <div className="bg-cyan-500/10 rounded-xl p-3 border border-cyan-500/20 text-center">
+                  <div className="text-2xl font-bold text-cyan-400">{storage.records.filter(r => isSameMonth(parseISO(r.date), new Date())).reduce((sum, r) => sum + r.hoursWorked, 0).toFixed(1)}h</div>
+                  <div className="text-xs text-slate-400 mt-1">Mensual</div>
+                  <div className="text-xs text-slate-500">Meta: 180h</div>
+                </div>
+                <div className="bg-purple-500/10 rounded-xl p-3 border border-purple-500/20 text-center">
+                  <div className="text-2xl font-bold text-purple-400">{storage.records.filter(r => isWithinInterval(parseISO(r.date), { start: startOfMonth(addWeeks(new Date(), -8)), end: endOfMonth(new Date()) })).reduce((sum, r) => sum + r.hoursWorked, 0).toFixed(1)}h</div>
+                  <div className="text-xs text-slate-400 mt-1">Trimestral</div>
+                  <div className="text-xs text-slate-500">Meta: 540h</div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Gráfico Semanal */}
+            <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50">
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><i className="fas fa-chart-bar text-blue-400"></i>Gráfico Semanal</h3>
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={weeklyChartData}>
@@ -448,28 +566,47 @@ export default function App() {
                     <XAxis dataKey="day" tick={{ fill: '#94a3b8', fontSize: 12 }} />
                     <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} />
                     <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(100,116,139,0.3)', borderRadius: '12px', color: '#e2e8f0' }} formatter={(value: number) => [`${value}h`, 'Horas']} />
-                    <ReferenceLine y={9} stroke="#f59e0b" strokeDasharray="3 3" />
+                    <ReferenceLine y={9} stroke="#f59e0b" strokeDasharray="3 3" label={{ value: 'Meta', fill: '#f59e0b', fontSize: 10 }} />
                     <Bar dataKey="hours" fill="url(#barGradient)" radius={[6, 6, 0, 0]} />
                     <defs><linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#3b82f6" /><stop offset="100%" stopColor="#06b6d4" /></linearGradient></defs>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             </div>
+            
+            {/* Gráfico Mensual */}
             <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50">
-              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><i className="fas fa-chart-line text-purple-400"></i>Proyección de Horas</h3>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-blue-400">{weeklySummary.totalHours}h</div>
-                  <div className="text-xs text-slate-400 mt-1">Semanal</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-cyan-400">{storage.records.filter(r => isSameMonth(parseISO(r.date), new Date())).reduce((sum, r) => sum + r.hoursWorked, 0).toFixed(1)}h</div>
-                  <div className="text-xs text-slate-400 mt-1">Mensual</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold text-purple-400">{storage.records.filter(r => isWithinInterval(parseISO(r.date), { start: startOfMonth(addWeeks(new Date(), -8)), end: endOfMonth(new Date()) })).reduce((sum, r) => sum + r.hoursWorked, 0).toFixed(1)}h</div>
-                  <div className="text-xs text-slate-400 mt-1">Trimestral</div>
-                </div>
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><i className="fas fa-chart-area text-cyan-400"></i>Gráfico Mensual</h3>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={monthlyChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(100,116,139,0.2)" />
+                    <XAxis dataKey="week" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                    <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                    <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(100,116,139,0.3)', borderRadius: '12px', color: '#e2e8f0' }} formatter={(value: number) => [`${value}h`, 'Horas']} />
+                    <ReferenceLine y={45} stroke="#f59e0b" strokeDasharray="3 3" />
+                    <Area type="monotone" dataKey="hours" stroke="#06b6d4" fill="url(#areaGradient)" strokeWidth={2} />
+                    <defs><linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#06b6d4" stopOpacity={0.4} /><stop offset="100%" stopColor="#06b6d4" stopOpacity={0.05} /></linearGradient></defs>
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+            
+            {/* Gráfico Trimestral */}
+            <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50">
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><i className="fas fa-chart-bar text-purple-400"></i>Gráfico Trimestral</h3>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={quarterlyChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(100,116,139,0.2)" />
+                    <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                    <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                    <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(100,116,139,0.3)', borderRadius: '12px', color: '#e2e8f0' }} formatter={(value: number) => [`${value}h`, 'Horas']} />
+                    <ReferenceLine y={180} stroke="#f59e0b" strokeDasharray="3 3" />
+                    <Bar dataKey="hours" fill="url(#barGradientQuarter)" radius={[6, 6, 0, 0]} />
+                    <defs><linearGradient id="barGradientQuarter" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#8b5cf6" /><stop offset="100%" stopColor="#ec4899" /></linearGradient></defs>
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             </div>
           </div>
@@ -581,19 +718,70 @@ export default function App() {
                     </div>
                   </div>
                 )}
-                {storage.discounts.map(discount => (
-                  <div key={discount.id} className="bg-slate-800/60 rounded-xl p-4 border border-slate-700/50">
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="font-semibold">{discount.name}</div>
-                      <button onClick={() => storage.deleteDiscount(discount.id)} className="text-red-400"><i className="fas fa-trash"></i></button>
+                {storage.discounts.map(discount => {
+                  const progress = (discount.completedPayments / discount.totalPayments) * 100;
+                  const pending = discount.totalAmount - (discount.completedPayments * discount.paymentAmount);
+                  return (
+                    <div key={discount.id} className="bg-slate-800/60 rounded-xl p-4 border border-slate-700/50">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-rose-500/20 border border-rose-500/30">
+                            <i className="fas fa-hand-holding-usd text-rose-400"></i>
+                          </div>
+                          <div>
+                            <div className="font-semibold text-white text-sm">{discount.name}</div>
+                            <div className="text-xs text-slate-400">{discount.type}</div>
+                          </div>
+                        </div>
+                        <div className="flex gap-1">
+                          <button 
+                            onClick={() => {
+                              const newCompleted = discount.completedPayments + 1;
+                              if (newCompleted <= discount.totalPayments) {
+                                storage.updateDiscount(discount.id, { completedPayments: newCompleted });
+                              }
+                            }}
+                            disabled={discount.completedPayments >= discount.totalPayments}
+                            className="w-8 h-8 flex items-center justify-center bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 rounded-lg text-green-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Registrar pago"
+                          >
+                            <i className="fas fa-check text-xs"></i>
+                          </button>
+                          <button onClick={() => storage.deleteDiscount(discount.id)} className="w-8 h-8 flex items-center justify-center bg-slate-700/50 hover:bg-red-500/20 rounded-lg text-slate-400 hover:text-red-400">
+                            <i className="fas fa-trash text-xs"></i>
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 mb-3">
+                        <div className="bg-slate-700/30 rounded-lg p-2">
+                          <div className="text-[10px] text-slate-500 uppercase">Total</div>
+                          <div className="text-sm font-bold text-white">${discount.totalAmount.toFixed(2)}</div>
+                        </div>
+                        <div className="bg-green-500/10 rounded-lg p-2 border border-green-500/20">
+                          <div className="text-[10px] text-green-400 uppercase">Pagado</div>
+                          <div className="text-sm font-bold text-green-400">${(discount.completedPayments * discount.paymentAmount).toFixed(2)}</div>
+                        </div>
+                        <div className="bg-rose-500/10 rounded-lg p-2 border border-rose-500/20">
+                          <div className="text-[10px] text-rose-400 uppercase">Pendiente</div>
+                          <div className="text-sm font-bold text-rose-400">${pending.toFixed(2)}</div>
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-400">Pago mensual</span>
+                          <span className="text-slate-300 font-medium">${discount.paymentAmount.toFixed(2)}</span>
+                        </div>
+                        <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                          <div className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full transition-all" style={{ width: `${progress}%` }}></div>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-slate-500">{discount.completedPayments}/{discount.totalPayments} pagos ({progress.toFixed(1)}%)</span>
+                          <span className="text-slate-500">{discount.totalPayments - discount.completedPayments} restantes</span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-xs text-slate-400 mb-2">{discount.type} - ${discount.paymentAmount.toFixed(2)}/mes</div>
-                    <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
-                      <div className="h-full bg-gradient-to-r from-green-500 to-emerald-400" style={{ width: `${(discount.completedPayments / discount.totalPayments) * 100}%` }}></div>
-                    </div>
-                    <div className="text-xs text-slate-500 mt-1">{discount.completedPayments}/{discount.totalPayments} pagos</div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -604,12 +792,78 @@ export default function App() {
           <div className="space-y-6">
             <div className="bg-gradient-to-r from-cyan-500/10 to-blue-500/10 rounded-2xl p-5 border border-cyan-500/20">
               <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><i className="fas fa-chart-line text-cyan-400"></i>Balance Personal - {format(new Date(), "MMMM yyyy", { locale: es })}</h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                 <div className="bg-slate-800/60 rounded-xl p-3"><div className="text-xs text-slate-400 mb-1">Gastos Totales</div><div className="text-xl font-bold text-rose-400">${totalExpenses.toFixed(2)}</div></div>
                 <div className="bg-slate-800/60 rounded-xl p-3"><div className="text-xs text-slate-400 mb-1">Gastos Pagados</div><div className="text-xl font-bold text-green-400">${totalPaidExpenses.toFixed(2)}</div></div>
                 <div className="bg-slate-800/60 rounded-xl p-3"><div className="text-xs text-slate-400 mb-1">Deudas Totales</div><div className="text-xl font-bold text-amber-400">${totalDebts.toFixed(2)}</div></div>
                 <div className="bg-slate-800/60 rounded-xl p-3"><div className="text-xs text-slate-400 mb-1">Deudas Pagadas</div><div className="text-xl font-bold text-green-400">${totalPaidDebts.toFixed(2)}</div></div>
               </div>
+              
+              {/* Gráficos de Balance */}
+              {storage.personalExpenses.length > 0 && (
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="bg-slate-700/30 rounded-xl p-4">
+                    <h4 className="text-sm font-semibold text-slate-300 mb-3">Distribución de Gastos</h4>
+                    <div className="h-48">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={Object.entries(EXPENSE_CATEGORIES).map(([key, val]) => ({
+                              name: val.label,
+                              value: storage.personalExpenses.filter(e => e.category === key).reduce((sum, e) => sum + e.amount, 0),
+                              color: val.color
+                            })).filter(d => d.value > 0)}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={40}
+                            outerRadius={70}
+                            paddingAngle={2}
+                            dataKey="value"
+                          >
+                            {Object.entries(EXPENSE_CATEGORIES).map(([key, val], index) => (
+                              <Cell key={`cell-${index}`} fill={val.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(100,116,139,0.3)', borderRadius: '12px' }} formatter={(value: number) => [`$${value.toFixed(2)}`, '']} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                  <div className="bg-slate-700/30 rounded-xl p-4">
+                    <h4 className="text-sm font-semibold text-slate-300 mb-3">Progreso de Pagos</h4>
+                    <div className="space-y-3">
+                      <div>
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="text-slate-400">Gastos</span>
+                          <span className="text-green-400">{totalExpenses > 0 ? ((totalPaidExpenses / totalExpenses) * 100).toFixed(1) : 0}%</span>
+                        </div>
+                        <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
+                          <div className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full transition-all" style={{ width: `${totalExpenses > 0 ? (totalPaidExpenses / totalExpenses) * 100 : 0}%` }}></div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="text-slate-400">Deudas</span>
+                          <span className="text-purple-400">{totalDebts > 0 ? ((totalPaidDebts / totalDebts) * 100).toFixed(1) : 0}%</span>
+                        </div>
+                        <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
+                          <div className="h-full bg-gradient-to-r from-purple-500 to-pink-500 rounded-full transition-all" style={{ width: `${totalDebts > 0 ? (totalPaidDebts / totalDebts) * 100 : 0}%` }}></div>
+                        </div>
+                      </div>
+                      <div className="pt-3 border-t border-slate-600/50">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-slate-300">Total Pagado:</span>
+                          <span className="text-green-400 font-bold">${(totalPaidExpenses + totalPaidDebts).toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-sm mt-1">
+                          <span className="text-slate-300">Total Pendiente:</span>
+                          <span className="text-rose-400 font-bold">${((totalExpenses + totalDebts) - (totalPaidExpenses + totalPaidDebts)).toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-2">
@@ -735,9 +989,30 @@ export default function App() {
             <div className="bg-gradient-to-r from-emerald-500/10 to-teal-500/10 rounded-2xl p-5 border border-emerald-500/20">
               <div className="flex items-start gap-3">
                 <div className="w-10 h-10 bg-emerald-500/20 rounded-xl flex items-center justify-center flex-shrink-0"><i className="fas fa-gift text-emerald-400"></i></div>
-                <div>
+                <div className="flex-1">
                   <h3 className="text-lg font-semibold text-emerald-300">14to Sueldo - Aguinaldo</h3>
                   <p className="text-sm text-slate-400 mt-1">Ingresa los sueldos de <strong className="text-white">diciembre a noviembre</strong></p>
+                </div>
+              </div>
+              
+              {/* Información sobre cálculo automático */}
+              <div className="mt-4 bg-blue-500/10 border border-blue-500/20 rounded-xl p-4">
+                <div className="flex items-start gap-2">
+                  <i className="fas fa-info-circle text-blue-400 mt-0.5"></i>
+                  <div className="text-xs text-blue-300">
+                    <p className="font-semibold mb-1">Cálculo Automático</p>
+                    <p className="text-blue-200/80">
+                      El día 1 de cada mes, el sistema calcula automáticamente la base para el décimo del mes anterior:
+                    </p>
+                    <ul className="mt-2 space-y-1 text-blue-200/70">
+                      <li>✓ <strong>Sueldo Base</strong> + <strong>Horas Extras</strong> del mes</li>
+                      <li>✗ NO incluye bonos</li>
+                      <li>✗ NO incluye fondo de reserva</li>
+                    </ul>
+                    <p className="mt-2 text-blue-200/80">
+                      Puedes editar estos valores manualmente si es necesario.
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -748,16 +1023,34 @@ export default function App() {
                 <button onClick={() => setDecimoValues(Array(12).fill(0))} className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs font-medium text-slate-300 flex items-center gap-1.5"><i className="fas fa-eraser"></i>Limpiar</button>
               </div>
               <div className="space-y-2">
-                {DECIMO_MONTHS.map((month, index) => (
-                  <div key={month} className="flex items-center gap-3 bg-slate-700/30 rounded-xl p-3 border border-slate-600/30">
-                    <div className="w-8 h-8 bg-slate-600/50 rounded-lg flex items-center justify-center text-xs font-bold text-slate-300">{index + 1}</div>
-                    <div className="flex-1"><span className="text-sm text-white font-medium">{month}</span></div>
-                    <div className="relative w-32">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
-                      <input type="number" value={decimoValues[index] || ''} onChange={(e) => { const newValues = [...decimoValues]; newValues[index] = parseFloat(e.target.value) || 0; setDecimoValues(newValues); }} placeholder="0.00" className="w-full bg-slate-700/50 border border-slate-600 rounded-lg pl-7 pr-3 py-2 text-white text-sm" min="0" step="0.01" />
+                {DECIMO_MONTHS.map((month, index) => {
+                  const lastProcessed = localStorage.getItem('asistencia_hl_decimo_last_processed');
+                  const currentMonth = format(new Date(), 'yyyy-MM');
+                  const prevMonth = new Date();
+                  prevMonth.setMonth(prevMonth.getMonth() - 1);
+                  const prevMonthStr = format(prevMonth, 'yyyy-MM');
+                  const isAutoCalculated = lastProcessed === currentMonth && decimoValues[index] > 0;
+                  
+                  return (
+                    <div key={month} className={`flex items-center gap-3 rounded-xl p-3 border ${isAutoCalculated ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-700/30 border-slate-600/30'}`}>
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold ${isAutoCalculated ? 'bg-emerald-500/30 text-emerald-300' : 'bg-slate-600/50 text-slate-300'}`}>{index + 1}</div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-white font-medium">{month}</span>
+                          {isAutoCalculated && (
+                            <span className="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                              <i className="fas fa-robot mr-1"></i>Automático
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="relative w-32">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
+                        <input type="number" value={decimoValues[index] || ''} onChange={(e) => { const newValues = [...decimoValues]; newValues[index] = parseFloat(e.target.value) || 0; setDecimoValues(newValues); }} placeholder="0.00" className="w-full bg-slate-700/50 border border-slate-600 rounded-lg pl-7 pr-3 py-2 text-white text-sm" min="0" step="0.01" />
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
