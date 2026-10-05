@@ -91,6 +91,8 @@ export default function App() {
   const [rate100, setRate100] = useState(() => parseFloat(localStorage.getItem('asistencia_hl_rate100') || '4.39'));
   const [rate50, setRate50] = useState(() => parseFloat(localStorage.getItem('asistencia_hl_rate50') || '3.29'));
   const [quincena, setQuincena] = useState(() => parseFloat(localStorage.getItem('asistencia_hl_quincena') || '0'));
+  const [selectedWeekStart, setSelectedWeekStart] = useState(() => localStorage.getItem('asistencia_hl_selected_week_start') || format(startOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [selectedWeekEnd, setSelectedWeekEnd] = useState(() => localStorage.getItem('asistencia_hl_selected_week_end') || format(endOfMonth(new Date()), 'yyyy-MM-dd'));
   
   // Decimo states
   const DECIMO_MONTHS = ['Diciembre', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre'];
@@ -111,6 +113,8 @@ export default function App() {
   useEffect(() => { localStorage.setItem('asistencia_hl_rate100', rate100.toString()); }, [rate100]);
   useEffect(() => { localStorage.setItem('asistencia_hl_rate50', rate50.toString()); }, [rate50]);
   useEffect(() => { localStorage.setItem('asistencia_hl_quincena', quincena.toString()); }, [quincena]);
+  useEffect(() => { localStorage.setItem('asistencia_hl_selected_week_start', selectedWeekStart); }, [selectedWeekStart]);
+  useEffect(() => { localStorage.setItem('asistencia_hl_selected_week_end', selectedWeekEnd); }, [selectedWeekEnd]);
   useEffect(() => { localStorage.setItem('asistencia_hl_decimo', JSON.stringify(decimoValues)); }, [decimoValues]);
   
   // Get weekly summary
@@ -285,7 +289,45 @@ export default function App() {
     return extraPay;
   };
   
-  const monthlyExtraPay = calculateMonthlyExtraPay();
+  // Get weeks in selected range
+  const getWeeksInRange = () => {
+    const weeks: { weekNumber: number; startDate: Date; endDate: Date; records: AttendanceRecord[]; extraPay: number }[] = [];
+    let current = parseISO(selectedWeekStart);
+    const end = parseISO(selectedWeekEnd);
+    
+    while (current <= end) {
+      const weekStart = startOfWeek(current, { weekStartsOn: 1 });
+      const weekEnd = endOfWeek(current, { weekStartsOn: 1 });
+      const weekNumber = getISOWeek(weekStart);
+      
+      // Check if week already added
+      if (!weeks.find(w => w.weekNumber === weekNumber)) {
+        const weekRecords = storage.records.filter(r => {
+          const rDate = parseISO(r.date);
+          return rDate >= weekStart && rDate <= weekEnd;
+        });
+        
+        // Calculate extra pay for this week
+        let weekExtraPay = 0;
+        weekRecords.forEach(record => {
+          const day = parseISO(record.date).getDay();
+          const isWeekday = day >= 1 && day <= 5;
+          if (record.isHoliday) weekExtraPay += record.hoursWorked * rate100;
+          else if (!isWeekday) weekExtraPay += record.hoursWorked * rate100;
+          else if (record.hoursWorked > 9) weekExtraPay += (record.hoursWorked - 9) * rate50;
+        });
+        
+        weeks.push({ weekNumber, startDate: weekStart, endDate: weekEnd, records: weekRecords, extraPay: weekExtraPay });
+      }
+      
+      current = addWeeks(current, 1);
+    }
+    
+    return weeks;
+  };
+  
+  const weeksInRange = getWeeksInRange();
+  const monthlyExtraPay = weeksInRange.reduce((sum, w) => sum + w.extraPay, 0);
   const baseIngreso = salary + monthlyExtraPay;
   const totalBonuses = storage.bonuses.reduce((sum, b) => sum + b.amount, 0);
   const grossIncome = baseIngreso + totalBonuses;
@@ -698,11 +740,22 @@ export default function App() {
         {activeTab === 'pay' && (
           <div className="space-y-6">
             <h2 className="text-lg font-semibold flex items-center gap-2"><i className="fas fa-money-bill-wave text-green-400"></i>Configuración de Pago</h2>
+            
+            {/* Configuración Base */}
             <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50 space-y-4">
-              <div><label className="block text-sm text-slate-300 mb-1.5">Sueldo Base Mensual</label><input type="number" value={salary || ''} onChange={(e) => setSalary(parseFloat(e.target.value) || 0)} className="w-full bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-3 text-white" /></div>
+              <div>
+                <label className="block text-sm text-slate-300 mb-1.5">Sueldo Base Mensual</label>
+                <input type="number" value={salary || ''} onChange={(e) => setSalary(parseFloat(e.target.value) || 0)} className="w-full bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-3 text-white" />
+              </div>
               <div className="grid grid-cols-2 gap-3">
-                <div><label className="block text-sm text-slate-300 mb-1.5"><span className="text-amber-400">●</span> Valor/hora 50%</label><input type="number" value={rate50 || ''} onChange={(e) => setRate50(parseFloat(e.target.value) || 0)} className="w-full bg-slate-700/50 border border-amber-500/30 rounded-xl px-4 py-3 text-white" step="0.01" /></div>
-                <div><label className="block text-sm text-slate-300 mb-1.5"><span className="text-blue-400">●</span> Valor/hora 100%</label><input type="number" value={rate100 || ''} onChange={(e) => setRate100(parseFloat(e.target.value) || 0)} className="w-full bg-slate-700/50 border border-blue-500/30 rounded-xl px-4 py-3 text-white" step="0.01" /></div>
+                <div>
+                  <label className="block text-sm text-slate-300 mb-1.5"><span className="text-amber-400">●</span> Valor/hora 50%</label>
+                  <input type="number" value={rate50 || ''} onChange={(e) => setRate50(parseFloat(e.target.value) || 0)} className="w-full bg-slate-700/50 border border-amber-500/30 rounded-xl px-4 py-3 text-white" step="0.01" />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-300 mb-1.5"><span className="text-blue-400">●</span> Valor/hora 100%</label>
+                  <input type="number" value={rate100 || ''} onChange={(e) => setRate100(parseFloat(e.target.value) || 0)} className="w-full bg-slate-700/50 border border-blue-500/30 rounded-xl px-4 py-3 text-white" step="0.01" />
+                </div>
               </div>
               <div className="bg-slate-700/30 rounded-xl p-4 border border-slate-600/30">
                 <label className="block text-sm text-slate-300 mb-1.5 flex items-center gap-2"><i className="fas fa-calendar-check text-purple-400"></i>Quincena (Pago fijo del 15)</label>
@@ -711,11 +764,153 @@ export default function App() {
               </div>
             </div>
             
+            {/* Selector de Rango de Semanas */}
             <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50">
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><i className="fas fa-calendar-week text-cyan-400"></i>Período de Cálculo</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm text-slate-300 mb-1.5">Semana Inicial</label>
+                  <select value={selectedWeekStart} onChange={(e) => setSelectedWeekStart(e.target.value)} className="w-full bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-3 text-white">
+                    {Array.from({ length: 52 }, (_, i) => {
+                      const weekDate = new Date(new Date().getFullYear(), 0, 1 + (i * 7));
+                      const weekStart = startOfWeek(weekDate, { weekStartsOn: 1 });
+                      const weekNum = getISOWeek(weekStart);
+                      return <option key={i} value={format(weekStart, 'yyyy-MM-dd')}>Sem {weekNum}: {format(weekStart, 'dd MMM', { locale: es })}</option>;
+                    })}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-300 mb-1.5">Semana Final</label>
+                  <select value={selectedWeekEnd} onChange={(e) => setSelectedWeekEnd(e.target.value)} className="w-full bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-3 text-white">
+                    {Array.from({ length: 52 }, (_, i) => {
+                      const weekDate = new Date(new Date().getFullYear(), 0, 1 + (i * 7));
+                      const weekEnd = endOfWeek(weekDate, { weekStartsOn: 1 });
+                      const weekNum = getISOWeek(weekEnd);
+                      return <option key={i} value={format(weekEnd, 'yyyy-MM-dd')}>Sem {weekNum}: {format(weekEnd, 'dd MMM', { locale: es })}</option>;
+                    })}
+                  </select>
+                </div>
+              </div>
+              <div className="mt-3 bg-cyan-500/10 border border-cyan-500/20 rounded-lg p-3">
+                <p className="text-xs text-cyan-300 flex items-center gap-2"><i className="fas fa-info-circle"></i>Se calcularán las horas extras de {weeksInRange.length} semana(s) seleccionada(s)</p>
+              </div>
+            </div>
+            
+            {/* Detalle de Horas Extras por Semana */}
+            <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50">
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><i className="fas fa-clock text-amber-400"></i>Detalle de Horas Extras por Semana</h3>
+              <div className="space-y-3">
+                {weeksInRange.map((week, index) => (
+                  <div key={index} className="bg-slate-700/30 rounded-xl p-4 border border-slate-600/30">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs bg-amber-500/20 text-amber-300 px-2 py-1 rounded-full border border-amber-500/30">Sem {week.weekNumber}</span>
+                        <span className="text-sm text-slate-300">{format(week.startDate, 'dd MMM', { locale: es })} - {format(week.endDate, 'dd MMM', { locale: es })}</span>
+                      </div>
+                      <span className="text-lg font-bold text-green-400">${week.extraPay.toFixed(2)}</span>
+                    </div>
+                    {week.records.length > 0 && (
+                      <div className="mt-2 pt-2 border-t border-slate-600/30">
+                        <div className="text-xs text-slate-400 mb-1">Registros:</div>
+                        <div className="space-y-1">
+                          {week.records.map(record => (
+                            <div key={record.id} className="flex justify-between text-xs bg-slate-800/50 rounded p-2">
+                              <span className="text-slate-300">{format(parseISO(record.date), 'dd/MM')} - {getDayOfWeekName(record.date)}{record.isHoliday && <span className="ml-1 text-amber-400">(Feriado)</span>}</span>
+                              <span className="text-slate-400">{record.hoursWorked}h</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {weeksInRange.length === 0 && (
+                  <div className="text-center py-6 text-slate-400">
+                    <i className="fas fa-calendar-times text-3xl mb-2"></i>
+                    <p>No hay registros en el período seleccionado</p>
+                  </div>
+                )}
+              </div>
+              <div className="mt-4 pt-4 border-t border-slate-700">
+                <div className="flex justify-between items-center">
+                  <span className="text-lg font-semibold text-white">Total Horas Extras:</span>
+                  <span className="text-2xl font-bold text-green-400">${monthlyExtraPay.toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+            
+            {/* Detalle de Bonos */}
+            {storage.bonuses.length > 0 && (
+              <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50">
+                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><i className="fas fa-gift text-green-400"></i>Detalle de Bonos</h3>
+                <div className="space-y-2">
+                  {storage.bonuses.map(bonus => (
+                    <div key={bonus.id} className="bg-slate-700/30 rounded-xl p-3 border border-slate-600/30 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${bonus.type === 'fixed' ? 'bg-green-500/20 border border-green-500/30' : bonus.type === 'variable' ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-amber-500/20 border border-amber-500/30'}`}>
+                          <i className={`fas ${bonus.type === 'fixed' ? 'fa-lock text-green-400' : bonus.type === 'variable' ? 'fa-chart-line text-amber-400' : 'fa-piggy-bank text-amber-400'} text-sm`}></i>
+                        </div>
+                        <div>
+                          <div className="font-medium text-white text-sm">{bonus.name}</div>
+                          <div className="text-xs text-slate-400">{bonus.type === 'fixed' ? 'Fijo' : bonus.type === 'variable' ? 'Variable' : 'Fondo de Reserva'}</div>
+                        </div>
+                      </div>
+                      <div className="text-lg font-bold text-green-400">${bonus.amount.toFixed(2)}</div>
+                    </div>
+                  ))}
+                  <div className="pt-2 border-t border-slate-700">
+                    <div className="flex justify-between items-center">
+                      <span className="text-lg font-semibold text-white">Total Bonos:</span>
+                      <span className="text-2xl font-bold text-green-400">${totalBonuses.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Detalle de Descuentos */}
+            {storage.discounts.length > 0 && (
+              <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50">
+                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><i className="fas fa-hand-holding-usd text-rose-400"></i>Detalle de Descuentos</h3>
+                <div className="space-y-2">
+                  {storage.discounts.map(discount => (
+                    <div key={discount.id} className="bg-slate-700/30 rounded-xl p-3 border border-slate-600/30">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-rose-500/20 border border-rose-500/30">
+                            <i className="fas fa-hand-holding-usd text-rose-400 text-sm"></i>
+                          </div>
+                          <div>
+                            <div className="font-medium text-white text-sm">{discount.name}</div>
+                            <div className="text-xs text-slate-400">{discount.type}</div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-lg font-bold text-rose-400">${discount.paymentAmount.toFixed(2)}</div>
+                          <div className="text-xs text-slate-500">{discount.completedPayments}/{discount.totalPayments} pagos</div>
+                        </div>
+                      </div>
+                      <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                        <div className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full transition-all" style={{ width: `${(discount.completedPayments / discount.totalPayments) * 100}%` }}></div>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="pt-2 border-t border-slate-700">
+                    <div className="flex justify-between items-center">
+                      <span className="text-lg font-semibold text-white">Total Descuentos:</span>
+                      <span className="text-2xl font-bold text-rose-400">-${totalDiscounts.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Resumen Final */}
+            <div className="bg-gradient-to-r from-emerald-500/10 to-teal-500/10 rounded-2xl p-5 border border-emerald-500/20">
               <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><i className="fas fa-calculator text-emerald-400"></i>Resumen de Pago del Mes</h3>
               <div className="space-y-2">
                 <div className="flex justify-between text-sm bg-slate-700/30 rounded-lg p-2"><span className="text-slate-300">Sueldo Base:</span><span className="text-white font-semibold">${salary.toFixed(2)}</span></div>
-                <div className="flex justify-between text-sm bg-green-500/10 rounded-lg p-2"><span className="text-green-300 flex items-center gap-2"><i className="fas fa-clock"></i>Horas Extras del Mes:</span><span className="text-green-400 font-semibold">+${monthlyExtraPay.toFixed(2)}</span></div>
+                <div className="flex justify-between text-sm bg-green-500/10 rounded-lg p-2"><span className="text-green-300 flex items-center gap-2"><i className="fas fa-clock"></i>Horas Extras ({weeksInRange.length} semanas):</span><span className="text-green-400 font-semibold">+${monthlyExtraPay.toFixed(2)}</span></div>
                 <div className="flex justify-between text-sm bg-cyan-500/10 rounded-lg p-2"><span className="text-cyan-300 font-semibold">Base de Ingreso:</span><span className="text-cyan-400 font-bold">${baseIngreso.toFixed(2)}</span></div>
                 {totalBonuses > 0 && <div className="flex justify-between text-sm bg-green-500/10 rounded-lg p-2"><span className="text-green-300 flex items-center gap-2"><i className="fas fa-gift"></i>Bonos ({storage.bonuses.length}):</span><span className="text-green-400 font-semibold">+${totalBonuses.toFixed(2)}</span></div>}
                 <div className="flex justify-between text-sm border-t border-slate-700 pt-2"><span className="text-white font-semibold">Ingreso Bruto:</span><span className="text-emerald-400 font-semibold">${grossIncome.toFixed(2)}</span></div>
