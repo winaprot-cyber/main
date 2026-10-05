@@ -294,7 +294,7 @@ export default function App() {
     return extraPay;
   };
   
-  // Get weeks in selected range with proper 45h rule
+  // Get weeks in selected range with CORRECT 45h rule
   const getWeeksInRange = () => {
     const weeks: { 
       weekNumber: number; 
@@ -306,6 +306,7 @@ export default function App() {
       hours100: number;
       pay50: number;
       pay100: number;
+      met45h: boolean;
     }[] = [];
     let current = parseISO(selectedWeekStart);
     const end = parseISO(selectedWeekEnd);
@@ -322,8 +323,8 @@ export default function App() {
           return rDate >= weekStart && rDate <= weekEnd;
         });
         
-        // Calculate hours by category with 45h rule
-        let weekdayHours = 0; // Lun-Vie normal
+        // Calculate hours by category
+        let weekdayHours = 0; // Lun-Vie
         let weekendHours = 0; // Sáb-Dom
         let holidayHours = 0; // Feriados
         
@@ -340,17 +341,20 @@ export default function App() {
           }
         });
         
-        // Apply 45h rule
-        const totalWeekdayHours = weekdayHours + holidayHours; // Feriados Lun-Vie cuentan en 45h
-        const met45hTarget = totalWeekdayHours >= 45;
+        // REGLA CORRECTA: ¿Se cumplieron 45h de Lun-Vie?
+        const totalWeekdayHours = weekdayHours + holidayHours; // Feriados Lun-Vie cuentan
+        const met45h = totalWeekdayHours >= 45;
         
-        // Calculate overtime hours
-        const overtimeHours50 = Math.max(0, totalWeekdayHours - 45); // Extras Lun-Vie al 50%
-        const overtimeHours100 = holidayHours + (met45hTarget ? weekendHours : 0); // Feriados + Sáb-Dom si cumplió 45h
+        // Calcular horas extras según la regla:
+        // - Si cumplió 45h Lun-Vie: Sáb-Dom al 100%
+        // - Si NO cumplió 45h Lun-Vie: Sáb-Dom al 50%
+        // - Feriados siempre al 100%
+        const hours100 = holidayHours + (met45h ? weekendHours : 0);
+        const hours50 = met45h ? 0 : weekendHours;
         
-        // Calculate pay
-        const pay50 = overtimeHours50 * rate50;
-        const pay100 = overtimeHours100 * rate100;
+        // Calcular pagos
+        const pay100 = hours100 * rate100;
+        const pay50 = hours50 * rate50;
         const weekExtraPay = pay50 + pay100;
         
         weeks.push({ 
@@ -359,10 +363,11 @@ export default function App() {
           endDate: weekEnd, 
           records: weekRecords, 
           extraPay: weekExtraPay,
-          hours50: overtimeHours50,
-          hours100: overtimeHours100,
+          hours50,
+          hours100,
           pay50,
-          pay100
+          pay100,
+          met45h
         });
       }
       
@@ -845,73 +850,44 @@ export default function App() {
             {/* Detalle de Horas Extras por Semana */}
             <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50">
               <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><i className="fas fa-clock text-amber-400"></i>Detalle de Horas Extras por Semana</h3>
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {weeksInRange.map((week, index) => (
-                  <div key={index} className="bg-slate-700/30 rounded-xl border border-slate-600/30 overflow-hidden">
+                  <div key={index} className="bg-slate-700/30 rounded-lg border border-slate-600/30 overflow-hidden">
                     <div 
-                      className="p-4 cursor-pointer hover:bg-slate-700/50 transition-all"
+                      className="p-3 cursor-pointer hover:bg-slate-700/50 transition-all"
                       onClick={() => setExpandedWeekIndex(expandedWeekIndex === index ? null : index)}
                     >
-                      <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <span className="text-xs bg-amber-500/20 text-amber-300 px-2 py-1 rounded-full border border-amber-500/30">Sem {week.weekNumber}</span>
-                          <span className="text-sm text-slate-300">{format(week.startDate, 'dd MMM', { locale: es })} - {format(week.endDate, 'dd MMM', { locale: es })}</span>
+                          <span className="text-xs bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full border border-amber-500/30">Sem {week.weekNumber}</span>
+                          <span className="text-xs text-slate-300">{format(week.startDate, 'dd MMM', { locale: es })}</span>
+                          {week.met45h && (
+                            <span className="text-xs bg-green-500/20 text-green-300 px-1.5 py-0.5 rounded">✓45h</span>
+                          )}
                         </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-lg font-bold text-green-400">${week.extraPay.toFixed(2)}</span>
-                          <i className={`fas fa-chevron-${expandedWeekIndex === index ? 'up' : 'down'} text-slate-400`}></i>
-                        </div>
-                      </div>
-                      
-                      {/* Resumen de horas extras */}
-                      <div className="grid grid-cols-2 gap-2 mt-2">
-                        <div className="bg-amber-500/10 rounded-lg p-2 border border-amber-500/20">
-                          <div className="text-xs text-amber-300 mb-1">Horas al 50%</div>
-                          <div className="text-sm font-bold text-amber-400">{week.hours50.toFixed(1)}h</div>
-                          <div className="text-xs text-amber-300">${week.pay50.toFixed(2)}</div>
-                        </div>
-                        <div className="bg-blue-500/10 rounded-lg p-2 border border-blue-500/20">
-                          <div className="text-xs text-blue-300 mb-1">Horas al 100%</div>
-                          <div className="text-sm font-bold text-blue-400">{week.hours100.toFixed(1)}h</div>
-                          <div className="text-xs text-blue-300">${week.pay100.toFixed(2)}</div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-bold text-green-400">${week.extraPay.toFixed(2)}</span>
+                          <i className={`fas fa-chevron-${expandedWeekIndex === index ? 'up' : 'down'} text-slate-400 text-xs`}></i>
                         </div>
                       </div>
                     </div>
                     
                     {expandedWeekIndex === index && (
-                      <div className="px-4 pb-4 pt-2 border-t border-slate-600/30 bg-slate-800/50">
-                        <div className="text-xs text-slate-400 mb-2 font-semibold">Detalle de Horas Extras:</div>
-                        <div className="space-y-2">
-                          {week.hours50 > 0 && (
-                            <div className="flex justify-between items-center bg-amber-500/10 rounded-lg p-3 border border-amber-500/20">
-                              <div>
-                                <div className="text-sm text-amber-300 font-semibold">Horas Extras al 50%</div>
-                                <div className="text-xs text-slate-400">Lun-Vie después de 45h</div>
-                              </div>
-                              <div className="text-right">
-                                <div className="text-lg font-bold text-amber-400">{week.hours50.toFixed(1)}h</div>
-                                <div className="text-sm text-amber-300">${week.pay50.toFixed(2)}</div>
-                              </div>
-                            </div>
-                          )}
-                          {week.hours100 > 0 && (
-                            <div className="flex justify-between items-center bg-blue-500/10 rounded-lg p-3 border border-blue-500/20">
-                              <div>
-                                <div className="text-sm text-blue-300 font-semibold">Horas Extras al 100%</div>
-                                <div className="text-xs text-slate-400">Feriados + Sáb-Dom (si cumplió 45h)</div>
-                              </div>
-                              <div className="text-right">
-                                <div className="text-lg font-bold text-blue-400">{week.hours100.toFixed(1)}h</div>
-                                <div className="text-sm text-blue-300">${week.pay100.toFixed(2)}</div>
-                              </div>
-                            </div>
-                          )}
-                          <div className="flex justify-between items-center bg-green-500/10 rounded-lg p-3 border border-green-500/20 mt-2">
-                            <div className="text-sm text-green-300 font-semibold">Total Semana</div>
-                            <div className="text-right">
-                              <div className="text-lg font-bold text-green-400">${week.extraPay.toFixed(2)}</div>
-                            </div>
+                      <div className="px-3 pb-3 pt-2 border-t border-slate-600/30 bg-slate-800/50">
+                        <div className="grid grid-cols-2 gap-2 mb-2">
+                          <div className="bg-amber-500/10 rounded p-2 border border-amber-500/20">
+                            <div className="text-xs text-amber-300">Al 50%</div>
+                            <div className="text-sm font-bold text-amber-400">{week.hours50.toFixed(1)}h</div>
+                            <div className="text-xs text-amber-300">${week.pay50.toFixed(2)}</div>
                           </div>
+                          <div className="bg-blue-500/10 rounded p-2 border border-blue-500/20">
+                            <div className="text-xs text-blue-300">Al 100%</div>
+                            <div className="text-sm font-bold text-blue-400">{week.hours100.toFixed(1)}h</div>
+                            <div className="text-xs text-blue-300">${week.pay100.toFixed(2)}</div>
+                          </div>
+                        </div>
+                        <div className="text-xs text-slate-400">
+                          {week.met45h ? '✓ Cumplió 45h Lun-Vie → Sáb-Dom al 100%' : '✗ No cumplió 45h Lun-Vie → Sáb-Dom al 50%'}
                         </div>
                       </div>
                     )}
@@ -1099,20 +1075,6 @@ export default function App() {
               </div>
             )}
             
-            {/* Resumen Final */}
-            <div className="bg-gradient-to-r from-emerald-500/10 to-teal-500/10 rounded-2xl p-5 border border-emerald-500/20">
-              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2"><i className="fas fa-calculator text-emerald-400"></i>Resumen de Pago del Mes</h3>
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm bg-slate-700/30 rounded-lg p-2"><span className="text-slate-300">Sueldo Base:</span><span className="text-white font-semibold">${salary.toFixed(2)}</span></div>
-                <div className="flex justify-between text-sm bg-green-500/10 rounded-lg p-2"><span className="text-green-300 flex items-center gap-2"><i className="fas fa-clock"></i>Horas Extras ({weeksInRange.length} semanas):</span><span className="text-green-400 font-semibold">+${monthlyExtraPay.toFixed(2)}</span></div>
-                <div className="flex justify-between text-sm bg-cyan-500/10 rounded-lg p-2"><span className="text-cyan-300 font-semibold">Base de Ingreso:</span><span className="text-cyan-400 font-bold">${baseIngreso.toFixed(2)}</span></div>
-                {totalBonuses > 0 && <div className="flex justify-between text-sm bg-green-500/10 rounded-lg p-2"><span className="text-green-300 flex items-center gap-2"><i className="fas fa-gift"></i>Bonos ({storage.bonuses.length}):</span><span className="text-green-400 font-semibold">+${totalBonuses.toFixed(2)}</span></div>}
-                <div className="flex justify-between text-sm border-t border-slate-700 pt-2"><span className="text-white font-semibold">Ingreso Bruto:</span><span className="text-emerald-400 font-semibold">${grossIncome.toFixed(2)}</span></div>
-                {quincena > 0 && <div className="flex justify-between text-sm bg-purple-500/10 rounded-lg p-2"><span className="text-purple-300 flex items-center gap-2"><i className="fas fa-calendar-check"></i>Quincena (descuento):</span><span className="text-purple-400 font-semibold">-${quincena.toFixed(2)}</span></div>}
-                {totalDiscounts > 0 && <div className="flex justify-between text-sm bg-rose-500/10 rounded-lg p-2"><span className="text-rose-300 flex items-center gap-2"><i className="fas fa-hand-holding-usd"></i>Descuentos ({storage.discounts.length}):</span><span className="text-rose-400 font-semibold">-${totalDiscounts.toFixed(2)}</span></div>}
-                <div className="flex justify-between border-t border-slate-700 pt-2 mt-2"><span className="text-white font-bold text-lg">Neto a Recibir:</span><span className={`text-2xl font-bold ${netIncome >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>${netIncome.toFixed(2)}</span></div>
-              </div>
-            </div>
           </div>
         )}
 
