@@ -307,6 +307,7 @@ export default function App() {
       pay50: number;
       pay100: number;
       met45h: boolean;
+      weekdayOvertime: number;
     }[] = [];
     let current = parseISO(selectedWeekStart);
     const end = parseISO(selectedWeekEnd);
@@ -345,12 +346,16 @@ export default function App() {
         const totalWeekdayHours = weekdayHours + holidayHours; // Feriados Lun-Vie cuentan
         const met45h = totalWeekdayHours >= 45;
         
+        // Horas extras de Lun-Vie después de 45h → al 50%
+        const weekdayOvertime = Math.max(0, totalWeekdayHours - 45);
+        
         // Calcular horas extras según la regla:
+        // - Lun-Vie después de 45h: al 50%
         // - Si cumplió 45h Lun-Vie: Sáb-Dom al 100%
         // - Si NO cumplió 45h Lun-Vie: Sáb-Dom al 50%
         // - Feriados siempre al 100%
         const hours100 = holidayHours + (met45h ? weekendHours : 0);
-        const hours50 = met45h ? 0 : weekendHours;
+        const hours50 = weekdayOvertime + (met45h ? 0 : weekendHours);
         
         // Calcular pagos
         const pay100 = hours100 * rate100;
@@ -367,7 +372,8 @@ export default function App() {
           hours100,
           pay50,
           pay100,
-          met45h
+          met45h,
+          weekdayOvertime
         });
       }
       
@@ -879,15 +885,25 @@ export default function App() {
                             <div className="text-xs text-amber-300">Al 50%</div>
                             <div className="text-sm font-bold text-amber-400">{week.hours50.toFixed(1)}h</div>
                             <div className="text-xs text-amber-300">${week.pay50.toFixed(2)}</div>
+                            {week.hours50 > 0 && (
+                              <div className="text-xs text-amber-300/70 mt-1">
+                                {week.met45h ? 'Extras Lun-Vie' : 'Extras Lun-Vie + Sáb-Dom'}
+                              </div>
+                            )}
                           </div>
                           <div className="bg-blue-500/10 rounded p-2 border border-blue-500/20">
                             <div className="text-xs text-blue-300">Al 100%</div>
                             <div className="text-sm font-bold text-blue-400">{week.hours100.toFixed(1)}h</div>
                             <div className="text-xs text-blue-300">${week.pay100.toFixed(2)}</div>
+                            {week.hours100 > 0 && (
+                              <div className="text-xs text-blue-300/70 mt-1">
+                                Feriados{week.met45h ? ' + Sáb-Dom' : ''}
+                              </div>
+                            )}
                           </div>
                         </div>
                         <div className="text-xs text-slate-400">
-                          {week.met45h ? '✓ Cumplió 45h Lun-Vie → Sáb-Dom al 100%' : '✗ No cumplió 45h Lun-Vie → Sáb-Dom al 50%'}
+                          {week.met45h ? '✓ Cumplió 45h Lun-Vie → Extras Lun-Vie + Sáb-Dom al 100%' : '✗ No cumplió 45h Lun-Vie → Todo al 50%'}
                         </div>
                       </div>
                     )}
