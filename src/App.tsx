@@ -44,6 +44,10 @@ export default function App() {
   const [recordDate, setRecordDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [entryTime, setEntryTime] = useState('08:00');
   const [exitTime, setExitTime] = useState('17:00');
+  const [entryPhoto, setEntryPhoto] = useState<string>('');
+  const [exitPhoto, setExitPhoto] = useState<string>('');
+  const entryPhotoRef = useRef<HTMLInputElement>(null);
+  const exitPhotoRef = useRef<HTMLInputElement>(null);
   
   // Balance states
   const [showExpenseForm, setShowExpenseForm] = useState(false);
@@ -53,6 +57,7 @@ export default function App() {
   const [paymentNotes, setPaymentNotes] = useState('');
   const [paymentReceipt, setPaymentReceipt] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showRealizarPagosModal, setShowRealizarPagosModal] = useState(false);
   
   // Expense form states
   const [expenseName, setExpenseName] = useState('');
@@ -71,6 +76,7 @@ export default function App() {
   const [bonusName, setBonusName] = useState('');
   const [bonusType, setBonusType] = useState<'fixed' | 'variable' | 'fondo_reserva'>('fixed');
   const [bonusAmount, setBonusAmount] = useState('');
+  const [expandedBonusId, setExpandedBonusId] = useState<string | null>(null);
   
   const [showDiscountForm, setShowDiscountForm] = useState(false);
   const [discountName, setDiscountName] = useState('');
@@ -78,6 +84,7 @@ export default function App() {
   const [discountTotal, setDiscountTotal] = useState('');
   const [discountPayments, setDiscountPayments] = useState('');
   const [discountPaymentAmount, setDiscountPaymentAmount] = useState('');
+  const [expandedDiscountId, setExpandedDiscountId] = useState<string | null>(null);
   
   // Pay states
   const [salary, setSalary] = useState(() => parseFloat(localStorage.getItem('asistencia_hl_salary') || '0'));
@@ -129,11 +136,40 @@ export default function App() {
     const hoursWorked = calculateHoursWorked(entryTime, exitTime);
     const weekend = isWeekend(recordDate);
     const holiday = isHoliday(recordDate, storage.holidays);
-    const record: AttendanceRecord = { id: generateId(), date: recordDate, dayOfWeek: new Date(recordDate + 'T00:00:00').getDay(), entryTime, exitTime, hoursWorked, isWeekend: weekend, isHoliday: holiday };
+    const record: AttendanceRecord = { 
+      id: generateId(), 
+      date: recordDate, 
+      dayOfWeek: new Date(recordDate + 'T00:00:00').getDay(), 
+      entryTime, 
+      exitTime, 
+      hoursWorked, 
+      isWeekend: weekend, 
+      isHoliday: holiday,
+      entryPhoto: entryPhoto || undefined,
+      exitPhoto: exitPhoto || undefined
+    };
     storage.addRecord(record);
     setShowRecordForm(false);
     setEntryTime('08:00');
     setExitTime('17:00');
+    setEntryPhoto('');
+    setExitPhoto('');
+  };
+  
+  const handleEntryPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => { setEntryPhoto(event.target?.result as string); };
+    reader.readAsDataURL(file);
+  };
+  
+  const handleExitPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => { setExitPhoto(event.target?.result as string); };
+    reader.readAsDataURL(file);
   };
   
   const handleAddHoliday = () => {
@@ -205,14 +241,26 @@ export default function App() {
       const newPaidAmount = (expense.paidAmount || 0) + amount;
       storage.updatePersonalExpense(expense.id, { paidAmount: newPaidAmount, payments: [...(expense.payments || []), { id: generateId(), amount, date: paymentDate, notes: paymentNotes || undefined, receiptPhoto: paymentReceipt || undefined }] });
       const receiptDataUrl = generatePaymentReceipt('expense', expense.name, amount, newPaidAmount, expense.amount, paymentDate, paymentNotes, paymentReceipt);
-      setTimeout(() => { if (confirm('✅ Pago registrado\n\n¿Compartir comprobante por WhatsApp?')) shareCardWhatsApp(receiptDataUrl, `Pago: ${expense.name}`); }, 500);
+      setTimeout(() => { 
+        const isPartial = newPaidAmount < expense.amount;
+        const message = isPartial ? 'pago parcial' : 'pago completo';
+        if (confirm(`✅ ${message.charAt(0).toUpperCase() + message.slice(1)} registrado\n\n¿Compartir comprobante por WhatsApp?`)) {
+          shareCardWhatsApp(receiptDataUrl, `Pago: ${expense.name}`);
+        }
+      }, 500);
     } else {
       const debt = storage.personalDebts.find(d => d.id === showPaymentModal.id);
       if (!debt) return;
       const newPaidAmount = debt.paidAmount + amount;
       storage.updatePersonalDebt(debt.id, { paidAmount: newPaidAmount, payments: [...(debt.payments || []), { id: generateId(), amount, date: paymentDate, notes: paymentNotes || undefined, receiptPhoto: paymentReceipt || undefined }] });
       const receiptDataUrl = generatePaymentReceipt('debt', debt.name, amount, newPaidAmount, debt.totalAmount, paymentDate, paymentNotes, paymentReceipt);
-      setTimeout(() => { if (confirm('✅ Pago registrado\n\n¿Compartir comprobante por WhatsApp?')) shareCardWhatsApp(receiptDataUrl, `Pago: ${debt.name}`); }, 500);
+      setTimeout(() => { 
+        const isPartial = newPaidAmount < debt.totalAmount;
+        const message = isPartial ? 'pago parcial' : 'pago completo';
+        if (confirm(`✅ ${message.charAt(0).toUpperCase() + message.slice(1)} registrado\n\n¿Compartir comprobante por WhatsApp?`)) {
+          shareCardWhatsApp(receiptDataUrl, `Pago: ${debt.name}`);
+        }
+      }, 500);
     }
     setShowPaymentModal(null);
     setPaymentAmount('');
@@ -241,8 +289,21 @@ export default function App() {
   const baseIngreso = salary + monthlyExtraPay;
   const totalBonuses = storage.bonuses.reduce((sum, b) => sum + b.amount, 0);
   const grossIncome = baseIngreso + totalBonuses;
-  const totalDiscounts = storage.discounts.reduce((sum, d) => sum + d.paymentAmount, 0);
-  const netIncome = grossIncome - totalDiscounts - quincena;
+  
+  // IESS automatic discounts
+  const iessSaludConyuge = baseIngreso * 0.0341; // 3.41%
+  const iessAportePersonal = baseIngreso * 0.0945; // 9.45%
+  const fondoReservaMensual = baseIngreso * 0.0833; // 8.33%
+  
+  // Check if IESS discounts are active
+  const iessSaludActive = storage.discounts.some(d => d.type === 'iess');
+  const iessAporteActive = storage.discounts.some(d => d.type === 'iess_aporte');
+  const fondoReservaActive = storage.bonuses.some(b => b.type === 'fondo_reserva');
+  
+  const totalDiscounts = storage.discounts.reduce((sum, d) => sum + d.paymentAmount, 0) + 
+                         (iessSaludActive ? 0 : iessSaludConyuge) + 
+                         (iessAporteActive ? 0 : iessAportePersonal);
+  const netIncome = grossIncome - totalDiscounts - quincena + (fondoReservaActive ? 0 : fondoReservaMensual);
   
   // Chart data
   const weeklyChartData = (() => {
@@ -488,6 +549,27 @@ export default function App() {
                   <div><label className="block text-sm text-slate-300 mb-1.5"><i className="fas fa-calendar mr-1 text-blue-400"></i>Fecha</label><input type="date" value={recordDate} onChange={(e) => setRecordDate(e.target.value)} className="w-full bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-3 text-white" /></div>
                   <div><label className="block text-sm text-slate-300 mb-1.5"><i className="fas fa-sign-in-alt mr-1 text-green-400"></i>Hora de Ingreso</label><input type="time" value={entryTime} onChange={(e) => setEntryTime(e.target.value)} className="w-full bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-3 text-white" /></div>
                   <div><label className="block text-sm text-slate-300 mb-1.5"><i className="fas fa-sign-out-alt mr-1 text-red-400"></i>Hora de Salida</label><input type="time" value={exitTime} onChange={(e) => setExitTime(e.target.value)} className="w-full bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-3 text-white" /></div>
+                  
+                  {/* Foto de Entrada */}
+                  <div>
+                    <label className="block text-sm text-slate-300 mb-1.5"><i className="fas fa-camera mr-1 text-green-400"></i>Foto de Ingreso (opcional)</label>
+                    <input ref={entryPhotoRef} type="file" accept="image/*" onChange={handleEntryPhotoChange} className="hidden" />
+                    <button onClick={() => entryPhotoRef.current?.click()} className="w-full py-3 bg-slate-700/50 hover:bg-slate-700/70 border border-slate-600 rounded-xl text-slate-400 transition-all">
+                      {entryPhoto ? '✅ Foto de ingreso cargada (clic para cambiar)' : '📷 Subir foto de ingreso'}
+                    </button>
+                    {entryPhoto && <img src={entryPhoto} alt="Foto de ingreso" className="mt-2 rounded-xl max-h-32 object-cover w-full" />}
+                  </div>
+                  
+                  {/* Foto de Salida */}
+                  <div>
+                    <label className="block text-sm text-slate-300 mb-1.5"><i className="fas fa-camera mr-1 text-red-400"></i>Foto de Salida (opcional)</label>
+                    <input ref={exitPhotoRef} type="file" accept="image/*" onChange={handleExitPhotoChange} className="hidden" />
+                    <button onClick={() => exitPhotoRef.current?.click()} className="w-full py-3 bg-slate-700/50 hover:bg-slate-700/70 border border-slate-600 rounded-xl text-slate-400 transition-all">
+                      {exitPhoto ? '✅ Foto de salida cargada (clic para cambiar)' : '📷 Subir foto de salida'}
+                    </button>
+                    {exitPhoto && <img src={exitPhoto} alt="Foto de salida" className="mt-2 rounded-xl max-h-32 object-cover w-full" />}
+                  </div>
+                  
                   <div className="bg-slate-700/40 rounded-xl p-4 border border-slate-600/50"><div className="flex justify-between"><span className="text-sm text-slate-300">Horas calculadas:</span><span className="text-xl font-bold text-cyan-400">{calculateHoursWorked(entryTime, exitTime)}h</span></div></div>
                   <div className="flex gap-3">
                     <button onClick={() => setShowRecordForm(false)} className="flex-1 py-3 bg-slate-700 rounded-xl">Cancelar</button>
@@ -675,20 +757,35 @@ export default function App() {
                   </div>
                 )}
                 {storage.bonuses.map(bonus => (
-                  <div key={bonus.id} className="bg-slate-800/60 rounded-xl p-4 border border-slate-700/50 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${bonus.type === 'fixed' ? 'bg-green-500/20 border border-green-500/30' : bonus.type === 'variable' ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-amber-500/20 border border-amber-500/30'}`}>
-                        <i className={`fas ${bonus.type === 'fixed' ? 'fa-lock text-green-400' : bonus.type === 'variable' ? 'fa-chart-line text-amber-400' : 'fa-piggy-bank text-amber-400'}`}></i>
+                  <div key={bonus.id} className="bg-slate-800/60 rounded-xl border border-slate-700/50 overflow-hidden">
+                    <div className="p-4 flex items-center justify-between cursor-pointer hover:bg-slate-700/30 transition-all" onClick={() => setExpandedBonusId(expandedBonusId === bonus.id ? null : bonus.id)}>
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${bonus.type === 'fixed' ? 'bg-green-500/20 border border-green-500/30' : bonus.type === 'variable' ? 'bg-amber-500/20 border border-amber-500/30' : 'bg-amber-500/20 border border-amber-500/30'}`}>
+                          <i className={`fas ${bonus.type === 'fixed' ? 'fa-lock text-green-400' : bonus.type === 'variable' ? 'fa-chart-line text-amber-400' : 'fa-piggy-bank text-amber-400'}`}></i>
+                        </div>
+                        <div>
+                          <div className="font-semibold text-white text-sm">{bonus.name}</div>
+                          <div className="text-xs text-slate-400">{bonus.type === 'fixed' ? 'Fijo' : bonus.type === 'variable' ? 'Variable' : 'Fondo de Reserva'}</div>
+                        </div>
                       </div>
-                      <div>
-                        <div className="font-semibold text-white text-sm">{bonus.name}</div>
-                        <div className="text-xs text-slate-400">{bonus.type === 'fixed' ? 'Fijo' : bonus.type === 'variable' ? 'Variable' : 'Fondo de Reserva'}</div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-lg font-bold text-green-400">${bonus.amount.toFixed(2)}</div>
+                        <i className={`fas fa-chevron-${expandedBonusId === bonus.id ? 'up' : 'down'} text-slate-400`}></i>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <div className="text-lg font-bold text-green-400">${bonus.amount.toFixed(2)}</div>
-                      <button onClick={() => storage.deleteBonus(bonus.id)} className="w-8 h-8 flex items-center justify-center bg-slate-700/50 hover:bg-red-500/20 rounded-lg text-slate-400 hover:text-red-400"><i className="fas fa-trash text-xs"></i></button>
-                    </div>
+                    {expandedBonusId === bonus.id && (
+                      <div className="px-4 pb-4 pt-2 border-t border-slate-700/50 bg-slate-900/50">
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between"><span className="text-slate-400">Tipo:</span><span className="text-white font-medium">{bonus.type === 'fixed' ? 'Fijo (mensual)' : bonus.type === 'variable' ? 'Variable' : 'Fondo de Reserva (8.33%)'}</span></div>
+                          <div className="flex justify-between"><span className="text-slate-400">Monto:</span><span className="text-green-400 font-bold">${bonus.amount.toFixed(2)}</span></div>
+                          {bonus.description && <div className="flex justify-between"><span className="text-slate-400">Descripción:</span><span className="text-white">{bonus.description}</span></div>}
+                          <div className="flex justify-between"><span className="text-slate-400">Fecha inicio:</span><span className="text-white">{format(parseISO(bonus.startDate), 'dd/MM/yyyy')}</span></div>
+                          <div className="flex gap-2 pt-2">
+                            <button onClick={(e) => { e.stopPropagation(); storage.deleteBonus(bonus.id); setExpandedBonusId(null); }} className="flex-1 py-2 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded-lg text-xs text-red-300 flex items-center justify-center gap-1.5"><i className="fas fa-trash"></i>Eliminar</button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -696,8 +793,179 @@ export default function App() {
             
             {financeTab === 'discounts' && (
               <div className="space-y-3">
+                {/* Descuentos IESS Automáticos */}
+                <div className="bg-gradient-to-r from-blue-500/10 to-cyan-500/10 rounded-2xl p-5 border border-blue-500/20 mb-4">
+                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <i className="fas fa-hospital text-blue-400"></i>
+                    Descuentos IESS Automáticos
+                  </h3>
+                  <div className="space-y-3">
+                    {/* IESS Salud Cónyuge */}
+                    <div className="bg-slate-800/60 rounded-xl p-4 border border-blue-500/30">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-blue-500/20 rounded-xl flex items-center justify-center border border-blue-500/30">
+                            <i className="fas fa-user-md text-blue-400"></i>
+                          </div>
+                          <div>
+                            <div className="font-semibold text-white text-sm">EXTENSIÓN IESS SALUD CÓNYUGE</div>
+                            <div className="text-xs text-slate-400">3.41% de la base de ingreso</div>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => {
+                            if (iessSaludActive) {
+                              const discount = storage.discounts.find(d => d.type === 'iess');
+                              if (discount) storage.deleteDiscount(discount.id);
+                            } else {
+                              const discount: Discount = {
+                                id: generateId(),
+                                name: 'EXTENSIÓN IESS SALUD CÓNYUGE',
+                                type: 'iess',
+                                totalAmount: iessSaludConyuge * 12,
+                                totalPayments: 12,
+                                completedPayments: 0,
+                                paymentAmount: iessSaludConyuge,
+                                startDate: format(new Date(), 'yyyy-MM-dd'),
+                                percentage: 3.41
+                              };
+                              storage.addDiscount(discount);
+                            }
+                          }}
+                          className={`px-4 py-2 rounded-lg text-xs font-medium transition-all ${
+                            iessSaludActive 
+                              ? 'bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-300' 
+                              : 'bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 text-green-300'
+                          }`}
+                        >
+                          {iessSaludActive ? 'Desactivar' : 'Activar'}
+                        </button>
+                      </div>
+                      <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-blue-300">Base de cálculo:</span>
+                          <span className="text-blue-400 font-bold">${baseIngreso.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs mt-1">
+                          <span className="text-blue-300">Monto mensual:</span>
+                          <span className="text-blue-400 font-bold">${iessSaludConyuge.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {/* Aporte Personal IESS */}
+                    <div className="bg-slate-800/60 rounded-xl p-4 border border-green-500/30">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-green-500/20 rounded-xl flex items-center justify-center border border-green-500/30">
+                            <i className="fas fa-user-shield text-green-400"></i>
+                          </div>
+                          <div>
+                            <div className="font-semibold text-white text-sm">APORTE PERSONAL IESS</div>
+                            <div className="text-xs text-slate-400">9.45% de la base de ingreso</div>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => {
+                            if (iessAporteActive) {
+                              const discount = storage.discounts.find(d => d.type === 'iess_aporte');
+                              if (discount) storage.deleteDiscount(discount.id);
+                            } else {
+                              const discount: Discount = {
+                                id: generateId(),
+                                name: 'APORTE PERSONAL IESS',
+                                type: 'iess_aporte',
+                                totalAmount: iessAportePersonal * 12,
+                                totalPayments: 12,
+                                completedPayments: 0,
+                                paymentAmount: iessAportePersonal,
+                                startDate: format(new Date(), 'yyyy-MM-dd'),
+                                percentage: 9.45
+                              };
+                              storage.addDiscount(discount);
+                            }
+                          }}
+                          className={`px-4 py-2 rounded-lg text-xs font-medium transition-all ${
+                            iessAporteActive 
+                              ? 'bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-300' 
+                              : 'bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 text-green-300'
+                          }`}
+                        >
+                          {iessAporteActive ? 'Desactivar' : 'Activar'}
+                        </button>
+                      </div>
+                      <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-green-300">Base de cálculo:</span>
+                          <span className="text-green-400 font-bold">${baseIngreso.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs mt-1">
+                          <span className="text-green-300">Monto mensual:</span>
+                          <span className="text-green-400 font-bold">${iessAportePersonal.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Fondo de Reserva Mensual */}
+                <div className="bg-gradient-to-r from-amber-500/10 to-orange-500/10 rounded-2xl p-5 border border-amber-500/20 mb-4">
+                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <i className="fas fa-piggy-bank text-amber-400"></i>
+                    Bonos Automáticos
+                  </h3>
+                  <div className="bg-slate-800/60 rounded-xl p-4 border border-amber-500/30">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-amber-500/20 rounded-xl flex items-center justify-center border border-amber-500/30">
+                          <i className="fas fa-piggy-bank text-amber-400"></i>
+                        </div>
+                        <div>
+                          <div className="font-semibold text-white text-sm">FONDO DE RESERVA MENSUAL</div>
+                          <div className="text-xs text-slate-400">8.33% de la base de ingreso</div>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => {
+                          if (fondoReservaActive) {
+                            const bonus = storage.bonuses.find(b => b.type === 'fondo_reserva');
+                            if (bonus) storage.deleteBonus(bonus.id);
+                          } else {
+                            const bonus: Bonus = {
+                              id: generateId(),
+                              name: 'FONDO DE RESERVA MENSUAL',
+                              type: 'fondo_reserva',
+                              amount: fondoReservaMensual,
+                              description: `Fondo de reserva del 8.33% sobre base de ingreso $${baseIngreso.toFixed(2)}`,
+                              startDate: format(new Date(), 'yyyy-MM-dd')
+                            };
+                            storage.addBonus(bonus);
+                          }
+                        }}
+                        className={`px-4 py-2 rounded-lg text-xs font-medium transition-all ${
+                          fondoReservaActive 
+                            ? 'bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-300' 
+                            : 'bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 text-green-300'
+                        }`}
+                      >
+                        {fondoReservaActive ? 'Desactivar' : 'Activar'}
+                      </button>
+                    </div>
+                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-amber-300">Base de cálculo:</span>
+                        <span className="text-amber-400 font-bold">${baseIngreso.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-xs mt-1">
+                        <span className="text-amber-300">Monto mensual:</span>
+                        <span className="text-amber-400 font-bold">${fondoReservaMensual.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
                 {!showDiscountForm ? (
-                  <button onClick={() => setShowDiscountForm(true)} className="w-full py-4 bg-gradient-to-r from-rose-600 to-pink-500 rounded-2xl font-semibold flex items-center justify-center gap-2"><i className="fas fa-plus"></i>Agregar Descuento</button>
+                  <button onClick={() => setShowDiscountForm(true)} className="w-full py-4 bg-gradient-to-r from-rose-600 to-pink-500 rounded-2xl font-semibold flex items-center justify-center gap-2"><i className="fas fa-plus"></i>Agregar Descuento Manual</button>
                 ) : (
                   <div className="bg-slate-800/80 rounded-2xl p-5 border border-rose-500/30 space-y-4">
                     <h3 className="text-lg font-semibold flex items-center gap-2"><i className="fas fa-hand-holding-usd text-rose-400"></i>Nuevo Descuento</h3>
@@ -722,16 +990,19 @@ export default function App() {
                   const progress = (discount.completedPayments / discount.totalPayments) * 100;
                   const pending = discount.totalAmount - (discount.completedPayments * discount.paymentAmount);
                   return (
-                    <div key={discount.id} className="bg-slate-800/60 rounded-xl p-4 border border-slate-700/50">
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-rose-500/20 border border-rose-500/30">
-                            <i className="fas fa-hand-holding-usd text-rose-400"></i>
+                    <div key={discount.id} className="bg-slate-800/60 rounded-xl border border-slate-700/50 overflow-hidden">
+                      <div className="p-4 cursor-pointer hover:bg-slate-700/30 transition-all" onClick={() => setExpandedDiscountId(expandedDiscountId === discount.id ? null : discount.id)}>
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-rose-500/20 border border-rose-500/30">
+                              <i className="fas fa-hand-holding-usd text-rose-400"></i>
+                            </div>
+                            <div>
+                              <div className="font-semibold text-white text-sm">{discount.name}</div>
+                              <div className="text-xs text-slate-400">{discount.type}</div>
+                            </div>
                           </div>
-                          <div>
-                            <div className="font-semibold text-white text-sm">{discount.name}</div>
-                            <div className="text-xs text-slate-400">{discount.type}</div>
-                          </div>
+                          <i className={`fas fa-chevron-${expandedDiscountId === discount.id ? 'up' : 'down'} text-slate-400`}></i>
                         </div>
                         <div className="flex gap-1">
                           <button 
@@ -779,6 +1050,22 @@ export default function App() {
                           <span className="text-slate-500">{discount.totalPayments - discount.completedPayments} restantes</span>
                         </div>
                       </div>
+                      {expandedDiscountId === discount.id && (
+                        <div className="mt-4 pt-4 border-t border-slate-700/50">
+                          <div className="space-y-2 text-sm">
+                            <div className="flex justify-between"><span className="text-slate-400">Tipo:</span><span className="text-white font-medium">{discount.type === 'loan' ? 'Préstamo' : discount.type === 'rol' ? 'Rol de Pagos' : discount.type === 'quirurgico' ? 'Quirúrgico' : discount.type === 'iess' ? 'IESS Salud Cónyuge' : discount.type === 'iess_aporte' ? 'Aporte Personal IESS' : 'Otro'}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-400">Monto Total:</span><span className="text-white font-bold">${discount.totalAmount.toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-400">Total Pagos:</span><span className="text-white">{discount.totalPayments}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-400">Monto por Pago:</span><span className="text-green-400 font-bold">${discount.paymentAmount.toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-400">Pagos Completados:</span><span className="text-green-400">{discount.completedPayments}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-400">Pagos Pendientes:</span><span className="text-rose-400">{discount.totalPayments - discount.completedPayments}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-400">Total Pagado:</span><span className="text-green-400 font-bold">${(discount.completedPayments * discount.paymentAmount).toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-400">Total Pendiente:</span><span className="text-rose-400 font-bold">${pending.toFixed(2)}</span></div>
+                            <div className="flex justify-between"><span className="text-slate-400">Progreso:</span><span className="text-cyan-400 font-bold">{progress.toFixed(1)}%</span></div>
+                            {discount.notes && <div className="pt-2 border-t border-slate-700/50"><span className="text-slate-400 text-xs">Notas:</span><p className="text-white text-xs mt-1">{discount.notes}</p></div>}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -866,10 +1153,19 @@ export default function App() {
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2 mb-4">
               <button onClick={() => setBalanceTab('expenses')} className={`py-3 rounded-xl font-medium flex items-center justify-center gap-2 ${balanceTab === 'expenses' ? 'bg-amber-500/20 border-amber-500/50 text-amber-300 border' : 'bg-slate-700/50 border border-slate-600 text-slate-400'}`}><i className="fas fa-receipt"></i>Gastos</button>
               <button onClick={() => setBalanceTab('debts')} className={`py-3 rounded-xl font-medium flex items-center justify-center gap-2 ${balanceTab === 'debts' ? 'bg-purple-500/20 border-purple-500/50 text-purple-300 border' : 'bg-slate-700/50 border border-slate-600 text-slate-400'}`}><i className="fas fa-hand-holding-usd"></i>Deudas</button>
             </div>
+            
+            {/* Botón de Realizar Pagos */}
+            <button 
+              onClick={() => setShowRealizarPagosModal(true)}
+              className="w-full py-4 bg-gradient-to-r from-cyan-600 to-blue-500 hover:from-cyan-500 hover:to-blue-400 rounded-2xl font-semibold text-white shadow-lg shadow-cyan-500/25 transition-all flex items-center justify-center gap-2 mb-4"
+            >
+              <i className="fas fa-money-check-alt"></i>
+              Realizar Pagos
+            </button>
 
             {balanceTab === 'expenses' && (
               <div className="space-y-3">
@@ -1123,6 +1419,112 @@ export default function App() {
         </div>
       </nav>
 
+      {/* Realizar Pagos Modal */}
+      {showRealizarPagosModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-800 rounded-2xl max-w-2xl w-full border border-slate-700 max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="p-5 border-b border-slate-700 flex items-center justify-between">
+              <h3 className="text-xl font-bold flex items-center gap-2"><i className="fas fa-money-check-alt text-cyan-400"></i>Realizar Pagos</h3>
+              <button onClick={() => setShowRealizarPagosModal(false)} className="w-8 h-8 bg-slate-700 hover:bg-slate-600 rounded-full flex items-center justify-center text-slate-400 hover:text-white"><i className="fas fa-times"></i></button>
+            </div>
+            <div className="p-5 overflow-y-auto flex-1 space-y-6">
+              {/* Gastos Pendientes */}
+              <div>
+                <h4 className="text-lg font-semibold text-amber-400 mb-3 flex items-center gap-2"><i className="fas fa-receipt"></i>Gastos Pendientes de Pago</h4>
+                {storage.personalExpenses.filter(e => e.isActive && (e.amount - (e.paidAmount || 0)) > 0).length === 0 ? (
+                  <div className="text-center py-6 bg-slate-700/30 rounded-xl"><i className="fas fa-check-circle text-4xl text-green-400 mb-2"></i><p className="text-slate-400">No hay gastos pendientes</p></div>
+                ) : (
+                  <div className="space-y-2">
+                    {storage.personalExpenses.filter(e => e.isActive && (e.amount - (e.paidAmount || 0)) > 0).map(expense => {
+                      const categoryInfo = EXPENSE_CATEGORIES[expense.category];
+                      const paidAmount = expense.paidAmount || 0;
+                      const netAmount = expense.amount - paidAmount;
+                      return (
+                        <div key={expense.id} className="bg-slate-700/30 rounded-xl p-4 border border-amber-500/30">
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-start gap-3 flex-1">
+                              <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${categoryInfo.color}20`, border: `1px solid ${categoryInfo.color}40` }}>
+                                <i className={`fas ${categoryInfo.icon}`} style={{ color: categoryInfo.color }}></i>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <h5 className="font-semibold text-white text-sm">{expense.name}</h5>
+                                <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: `${categoryInfo.color}20`, color: categoryInfo.color }}>{categoryInfo.label}</span>
+                                {paidAmount > 0 && <div className="mt-2 text-xs text-slate-400">Pagado: <span className="text-green-400">${paidAmount.toFixed(2)}</span></div>}
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-end gap-2">
+                              <div className="text-right">
+                                {paidAmount > 0 && <div className="text-xs text-slate-500 line-through">${expense.amount.toFixed(2)}</div>}
+                                <div className="text-lg font-bold" style={{ color: categoryInfo.color }}>${netAmount.toFixed(2)}</div>
+                              </div>
+                              <button onClick={() => { setShowRealizarPagosModal(false); setShowPaymentModal({ type: 'expense', id: expense.id }); setPaymentAmount(netAmount.toFixed(2)); setPaymentNotes(''); setPaymentReceipt(''); }} className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 rounded-lg text-xs font-medium text-amber-300 flex items-center gap-1.5"><i className="fas fa-money-bill-wave"></i>Pagar</button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              
+              {/* Deudas Pendientes */}
+              <div>
+                <h4 className="text-lg font-semibold text-purple-400 mb-3 flex items-center gap-2"><i className="fas fa-hand-holding-usd"></i>Deudas Pendientes de Pago</h4>
+                {storage.personalDebts.filter(d => (d.totalAmount - d.paidAmount) > 0).length === 0 ? (
+                  <div className="text-center py-6 bg-slate-700/30 rounded-xl"><i className="fas fa-check-circle text-4xl text-green-400 mb-2"></i><p className="text-slate-400">No hay deudas pendientes</p></div>
+                ) : (
+                  <div className="space-y-2">
+                    {storage.personalDebts.filter(d => (d.totalAmount - d.paidAmount) > 0).map(debt => {
+                      const typeInfo = DEBT_TYPES[debt.type];
+                      const pending = debt.totalAmount - debt.paidAmount;
+                      return (
+                        <div key={debt.id} className="bg-slate-700/30 rounded-xl p-4 border border-purple-500/30">
+                          <div className="flex items-start justify-between">
+                            <div className="flex items-start gap-3 flex-1">
+                              <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${typeInfo.color}20`, border: `1px solid ${typeInfo.color}40` }}>
+                                <i className={`fas ${typeInfo.icon}`} style={{ color: typeInfo.color }}></i>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <h5 className="font-semibold text-white text-sm">{debt.name}</h5>
+                                <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: `${typeInfo.color}20`, color: typeInfo.color === 'blue' ? '#93c5fd' : typeInfo.color === 'purple' ? '#c4b5fd' : typeInfo.color === 'red' ? '#fca5a5' : typeInfo.color === 'amber' ? '#fcd34d' : '#cbd5e1' }}>{typeInfo.label}</span>
+                                {debt.paidAmount > 0 && <div className="mt-2 text-xs text-slate-400">Pagado: <span className="text-green-400">${debt.paidAmount.toFixed(2)}</span></div>}
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-end gap-2">
+                              <div className="text-right">
+                                <div className="text-xs text-slate-500">Mensual: ${debt.monthlyPayment.toFixed(2)}</div>
+                                <div className="text-lg font-bold" style={{ color: typeInfo.color }}>${pending.toFixed(2)}</div>
+                              </div>
+                              <button onClick={() => { setShowRealizarPagosModal(false); setShowPaymentModal({ type: 'debt', id: debt.id }); setPaymentAmount(debt.monthlyPayment.toFixed(2)); setPaymentNotes(''); setPaymentReceipt(''); }} className="px-3 py-1.5 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/30 rounded-lg text-xs font-medium text-purple-300 flex items-center gap-1.5"><i className="fas fa-money-bill-wave"></i>Pagar</button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              
+              {/* Resumen Total */}
+              <div className="bg-gradient-to-r from-cyan-500/10 to-blue-500/10 rounded-xl p-4 border border-cyan-500/20">
+                <div className="flex justify-between items-center">
+                  <span className="text-lg font-semibold text-white">Total Pendiente de Pago</span>
+                  <span className="text-2xl font-bold text-cyan-400">
+                    ${(
+                      storage.personalExpenses.filter(e => e.isActive && (e.amount - (e.paidAmount || 0)) > 0).reduce((sum, e) => sum + (e.amount - (e.paidAmount || 0)), 0) +
+                      storage.personalDebts.filter(d => (d.totalAmount - d.paidAmount) > 0).reduce((sum, d) => sum + (d.totalAmount - d.paidAmount), 0)
+                    ).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="p-5 border-t border-slate-700">
+              <button onClick={() => setShowRealizarPagosModal(false)} className="w-full py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium text-slate-300">Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Payment Modal */}
       {showPaymentModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -1132,10 +1534,10 @@ export default function App() {
               <div><label className="block text-sm text-slate-300 mb-1.5">Monto</label><input type="number" value={paymentAmount} onChange={(e) => setPaymentAmount(e.target.value)} className="w-full bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-3 text-white" /></div>
               <div><label className="block text-sm text-slate-300 mb-1.5">Notas</label><textarea value={paymentNotes} onChange={(e) => setPaymentNotes(e.target.value)} className="w-full bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-3 text-white" rows={2} /></div>
               <div>
-                <label className="block text-sm text-slate-300 mb-1.5"><i className="fas fa-camera mr-1 text-purple-400"></i>Foto de Factura (opcional)</label>
+                <label className="block text-sm text-slate-300 mb-1.5"><i className="fas fa-camera mr-1 text-purple-400"></i>Foto de Soporte (opcional)</label>
                 <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
-                <button onClick={() => fileInputRef.current?.click()} className="w-full py-3 bg-slate-700/50 hover:bg-slate-700/70 border border-slate-600 rounded-xl text-slate-400">{paymentReceipt ? '✅ Foto cargada (clic para cambiar)' : '📷 Subir foto de factura'}</button>
-                {paymentReceipt && <img src={paymentReceipt} alt="Factura" className="mt-2 rounded-xl max-h-48 object-cover w-full" />}
+                <button onClick={() => fileInputRef.current?.click()} className="w-full py-3 bg-slate-700/50 hover:bg-slate-700/70 border border-slate-600 rounded-xl text-slate-400">{paymentReceipt ? '✅ Foto cargada (clic para cambiar)' : '📷 Subir foto de soporte'}</button>
+                {paymentReceipt && <img src={paymentReceipt} alt="Soporte" className="mt-2 rounded-xl max-h-48 object-cover w-full" />}
               </div>
             </div>
             <div className="p-5 border-t border-slate-700 flex gap-3">
