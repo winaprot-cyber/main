@@ -354,6 +354,7 @@ export default function App() {
 
         {activeTab === 'finanzas' && (
           <FinancialManager
+            records={records}
             bonuses={bonuses}
             discounts={discounts}
             onAddBonus={addBonus}

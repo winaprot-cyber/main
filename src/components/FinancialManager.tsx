@@ -1,10 +1,12 @@
-import { useState } from 'react';
-import { Bonus, Discount } from '../types';
-import { format, parseISO } from 'date-fns';
+import { useState, useEffect } from 'react';
+import { AttendanceRecord, Bonus, Discount } from '../types';
+import { format, parseISO, startOfMonth, endOfMonth } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { generateId } from '../utils/calculations';
+import { calculateMonthlyExtraPay } from '../utils/payCalculations';
 
 interface Props {
+  records: AttendanceRecord[];
   bonuses: Bonus[];
   discounts: Discount[];
   onAddBonus: (bonus: Bonus) => void;
@@ -14,10 +16,11 @@ interface Props {
   onDeleteDiscount: (id: string) => void;
 }
 
-export function FinancialManager({ bonuses, discounts, onAddBonus, onDeleteBonus, onAddDiscount, onUpdateDiscount, onDeleteDiscount }: Props) {
+export function FinancialManager({ records, bonuses, discounts, onAddBonus, onDeleteBonus, onAddDiscount, onUpdateDiscount, onDeleteDiscount }: Props) {
   const [activeTab, setActiveTab] = useState<'bonuses' | 'discounts'>('bonuses');
   const [showBonusForm, setShowBonusForm] = useState(false);
   const [showDiscountForm, setShowDiscountForm] = useState(false);
+  const [editingDiscountId, setEditingDiscountId] = useState<string | null>(null);
 
   // Bonus form state
   const [bonusName, setBonusName] = useState('');
@@ -34,6 +37,100 @@ export function FinancialManager({ bonuses, discounts, onAddBonus, onDeleteBonus
   const [discountPaymentAmount, setDiscountPaymentAmount] = useState('');
   const [discountStartDate, setDiscountStartDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [discountNotes, setDiscountNotes] = useState('');
+  const [customPaymentsList, setCustomPaymentsList] = useState<string[]>([]);
+  const [useCustomPayments, setUseCustomPayments] = useState(false);
+
+  // IESS Discount state
+  const [salaryBase, setSalaryBase] = useState<number>(() => {
+    const stored = localStorage.getItem('asistencia_hl_salary');
+    return stored ? parseFloat(stored) : 0;
+  });
+
+  // Calcular horas extras del periodo seleccionado
+  const payStartDate = localStorage.getItem('asistencia_hl_selected_week_start');
+  const payEndDate = localStorage.getItem('asistencia_hl_selected_week_end');
+  const currentMonth = new Date();
+  const periodStart = payStartDate ? parseISO(payStartDate) : startOfMonth(currentMonth);
+  
+  const rate100 = parseFloat(localStorage.getItem('asistencia_hl_rate100') || '4.39');
+  const rate50 = parseFloat(localStorage.getItem('asistencia_hl_rate50') || '3.29');
+  const periodExtraPay = calculateMonthlyExtraPay(records, rate100, rate50, periodStart, payStartDate || undefined, payEndDate || undefined);
+
+  // Base de ingreso = Sueldo + Horas Extras del periodo seleccionado
+  const baseIngreso = salaryBase + periodExtraPay;
+
+  // IESS Salud Cónyuge: 3.41% de la base de ingreso
+  const iessPercentage = 3.41;
+  const iessAmount = (baseIngreso * iessPercentage) / 100;
+
+  // Aporte Personal IESS: 9.45% de la base de ingreso
+  const iessAportePercentage = 9.45;
+  const iessAporteAmount = (baseIngreso * iessAportePercentage) / 100;
+
+  // Fondo de Reserva Mensual: 8.33% de la base de ingreso
+  const fondoReservaPercentage = 8.33;
+  const fondoReservaAmount = (baseIngreso * fondoReservaPercentage) / 100;
+
+  // Verificar si los descuentos IESS y Fondo de Reserva ya existen
+  const iessDiscount = discounts.find(d => d.type === 'iess');
+  const iessAporteDiscount = discounts.find(d => d.type === 'iess_aporte');
+  const fondoReservaBonus = bonuses.find(b => b.type === 'fondo_reserva');
+
+  const handleToggleIESS = () => {
+    if (iessDiscount) {
+      onDeleteDiscount(iessDiscount.id);
+    } else {
+      const newIESSDiscount: Discount = {
+        id: generateId(),
+        name: 'EXTENSION IESS SALUD CONYUGE',
+        type: 'iess',
+        totalAmount: iessAmount,
+        totalPayments: 1,
+        completedPayments: 0,
+        paymentAmount: iessAmount,
+        startDate: format(new Date(), 'yyyy-MM-dd'),
+        notes: `Descuento fijo mensual del ${iessPercentage}% sobre base de ingreso $${baseIngreso.toFixed(2)}`,
+        percentage: iessPercentage
+      };
+      onAddDiscount(newIESSDiscount);
+    }
+  };
+
+  const handleToggleIESSAporte = () => {
+    if (iessAporteDiscount) {
+      onDeleteDiscount(iessAporteDiscount.id);
+    } else {
+      const newIESSAporteDiscount: Discount = {
+        id: generateId(),
+        name: 'APORTE PERSONAL IESS',
+        type: 'iess_aporte',
+        totalAmount: iessAporteAmount,
+        totalPayments: 1,
+        completedPayments: 0,
+        paymentAmount: iessAporteAmount,
+        startDate: format(new Date(), 'yyyy-MM-dd'),
+        notes: `Aporte personal del ${iessAportePercentage}% sobre base de ingreso $${baseIngreso.toFixed(2)}`,
+        percentage: iessAportePercentage
+      };
+      onAddDiscount(newIESSAporteDiscount);
+    }
+  };
+
+  const handleToggleFondoReserva = () => {
+    if (fondoReservaBonus) {
+      onDeleteBonus(fondoReservaBonus.id);
+    } else {
+      const newFondoReservaBonus: Bonus = {
+        id: generateId(),
+        name: 'FONDO DE RESERVA MENSUAL',
+        type: 'fondo_reserva',
+        amount: fondoReservaAmount,
+        description: `Fondo de reserva del ${fondoReservaPercentage}% sobre base de ingreso $${baseIngreso.toFixed(2)}`,
+        startDate: format(new Date(), 'yyyy-MM-dd')
+      };
+      onAddBonus(newFondoReservaBonus);
+    }
+  };
 
   const resetBonusForm = () => {
     setBonusName('');
@@ -53,6 +150,30 @@ export function FinancialManager({ bonuses, discounts, onAddBonus, onDeleteBonus
     setDiscountStartDate(format(new Date(), 'yyyy-MM-dd'));
     setDiscountNotes('');
     setShowDiscountForm(false);
+    setEditingDiscountId(null);
+    setCustomPaymentsList([]);
+    setUseCustomPayments(false);
+  };
+
+  const handleEditDiscount = (discount: Discount) => {
+    setDiscountName(discount.name);
+    setDiscountType(discount.type);
+    setDiscountTotal(discount.totalAmount.toString());
+    setDiscountPayments(discount.totalPayments.toString());
+    setDiscountPaymentAmount(discount.paymentAmount.toString());
+    setDiscountStartDate(discount.startDate);
+    setDiscountNotes(discount.notes || '');
+    setEditingDiscountId(discount.id);
+    
+    if (discount.customPayments && discount.customPayments.length > 0) {
+      setCustomPaymentsList(discount.customPayments.map(p => p.toString()));
+      setUseCustomPayments(true);
+    } else {
+      setCustomPaymentsList([]);
+      setUseCustomPayments(false);
+    }
+    
+    setShowDiscountForm(true);
   };
 
   const handleAddBonus = (e: React.FormEvent) => {
@@ -81,19 +202,49 @@ export function FinancialManager({ bonuses, discounts, onAddBonus, onDeleteBonus
 
     if (!discountName.trim() || isNaN(totalAmount) || totalAmount <= 0 || isNaN(totalPayments) || totalPayments <= 0) return;
 
-    const discount: Discount = {
-      id: generateId(),
-      name: discountName.trim(),
-      type: discountType,
-      totalAmount,
-      totalPayments,
-      completedPayments: 0,
-      paymentAmount: Math.round(paymentAmount * 100) / 100,
-      startDate: discountStartDate,
-      notes: discountNotes.trim() || undefined,
-    };
+    let customPayments: number[] | undefined;
+    if (useCustomPayments && customPaymentsList.length === totalPayments) {
+      customPayments = customPaymentsList.map(p => parseFloat(p) || 0);
+      
+      const customTotal = customPayments.reduce((sum, p) => sum + p, 0);
+      if (Math.abs(customTotal - totalAmount) > 0.01) {
+        alert(`La suma de los pagos personalizados ($${customTotal.toFixed(2)}) debe ser igual al monto total ($${totalAmount.toFixed(2)})`);
+        return;
+      }
+    }
 
-    onAddDiscount(discount);
+    if (editingDiscountId) {
+      const existingDiscount = discounts.find(d => d.id === editingDiscountId);
+      if (existingDiscount) {
+        const updatedDiscount: Discount = {
+          ...existingDiscount,
+          name: discountName.trim(),
+          type: discountType,
+          totalAmount,
+          totalPayments,
+          paymentAmount: Math.round(paymentAmount * 100) / 100,
+          customPayments: customPayments,
+          startDate: discountStartDate,
+          notes: discountNotes.trim() || undefined,
+        };
+        onUpdateDiscount(editingDiscountId, updatedDiscount);
+      }
+    } else {
+      const discount: Discount = {
+        id: generateId(),
+        name: discountName.trim(),
+        type: discountType,
+        totalAmount,
+        totalPayments,
+        completedPayments: 0,
+        paymentAmount: Math.round(paymentAmount * 100) / 100,
+        customPayments: customPayments,
+        startDate: discountStartDate,
+        notes: discountNotes.trim() || undefined,
+      };
+      onAddDiscount(discount);
+    }
+
     resetDiscountForm();
   };
 
@@ -115,7 +266,7 @@ export function FinancialManager({ bonuses, discounts, onAddBonus, onDeleteBonus
   const fixedBonuses = bonuses.filter(b => b.type === 'fixed').reduce((sum, b) => sum + b.amount, 0);
   const variableBonuses = bonuses.filter(b => b.type === 'variable').reduce((sum, b) => sum + b.amount, 0);
   const fondoReservaBonuses = bonuses.filter(b => b.type === 'fondo_reserva').reduce((sum, b) => sum + b.amount, 0);
-
+  
   const totalDebt = discounts.reduce((sum, d) => sum + d.totalAmount, 0);
   const totalPaid = discounts.reduce((sum, d) => sum + (d.completedPayments * d.paymentAmount), 0);
   const totalPending = totalDebt - totalPaid;
@@ -173,6 +324,68 @@ export function FinancialManager({ bonuses, discounts, onAddBonus, onDeleteBonus
       {/* Bonuses Tab */}
       {activeTab === 'bonuses' && (
         <div className="space-y-3">
+          {/* Fondo de Reserva Mensual */}
+          <div className="bg-gradient-to-r from-amber-500/10 to-orange-500/10 rounded-2xl p-5 border border-amber-500/20 mb-4">
+            <div className="flex items-start justify-between mb-3">
+              <div className="flex items-start gap-3">
+                <div className="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center flex-shrink-0 border border-amber-500/30">
+                  <i className="fas fa-piggy-bank text-amber-400 text-xl"></i>
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-white">FONDO DE RESERVA MENSUAL</h3>
+                  <p className="text-xs text-slate-400 mt-1">Bono fijo del 8.33% sobre base de ingreso</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-800/60 rounded-xl p-4 mb-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-xs text-slate-400 mb-1">Base de Ingreso</div>
+                  <div className="text-lg font-bold text-white">${baseIngreso.toFixed(2)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-400 mb-1">Porcentaje</div>
+                  <div className="text-lg font-bold text-amber-400">{fondoReservaPercentage}%</div>
+                </div>
+                <div className="col-span-2">
+                  <div className="text-xs text-slate-400 mb-1">Monto Mensual</div>
+                  <div className="text-2xl font-bold text-orange-400">${fondoReservaAmount.toFixed(2)}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-3 mb-3">
+              <p className="text-xs text-amber-300 flex items-start gap-2">
+                <i className="fas fa-info-circle mt-0.5"></i>
+                <span>
+                  Fórmula: ${baseIngreso.toFixed(2)} × {fondoReservaPercentage}% = ${fondoReservaAmount.toFixed(2)} mensuales
+                </span>
+              </p>
+            </div>
+
+            <button
+              onClick={handleToggleFondoReserva}
+              className={`w-full py-3 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 ${
+                fondoReservaBonus
+                  ? 'bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-300'
+                  : 'bg-gradient-to-r from-amber-600 to-orange-500 hover:from-amber-500 hover:to-orange-400 text-white shadow-lg shadow-amber-500/25'
+              }`}
+            >
+              <i className={`fas ${fondoReservaBonus ? 'fa-times-circle' : 'fa-plus-circle'}`}></i>
+              {fondoReservaBonus ? 'Desactivar Fondo de Reserva' : 'Activar Fondo de Reserva'}
+            </button>
+
+            {fondoReservaBonus && (
+              <div className="mt-3 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
+                <p className="text-xs text-amber-300 flex items-center gap-2">
+                  <i className="fas fa-check-circle"></i>
+                  <span>Fondo de Reserva activo - Se agregará ${fondoReservaAmount.toFixed(2)} mensuales</span>
+                </p>
+              </div>
+            )}
+          </div>
+
           {!showBonusForm ? (
             <button
               onClick={() => setShowBonusForm(true)}
@@ -355,6 +568,169 @@ export function FinancialManager({ bonuses, discounts, onAddBonus, onDeleteBonus
       {/* Discounts Tab */}
       {activeTab === 'discounts' && (
         <div className="space-y-3">
+          {/* Base de Ingreso */}
+          <div className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 rounded-2xl p-5 border border-purple-500/20 mb-4">
+            <div className="flex items-start gap-3 mb-3">
+              <div className="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center flex-shrink-0 border border-purple-500/30">
+                <i className="fas fa-calculator text-purple-400 text-xl"></i>
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-white">Base de Ingreso Mensual</h3>
+                <p className="text-xs text-slate-400 mt-1">Sueldo base + Horas extras del periodo</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-800/60 rounded-xl p-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-xs text-slate-400 mb-1">Sueldo Base</div>
+                  <div className="text-lg font-bold text-white">${salaryBase.toFixed(2)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-400 mb-1">Horas Extras (Periodo)</div>
+                  <div className="text-lg font-bold text-green-400">${periodExtraPay.toFixed(2)}</div>
+                </div>
+                <div className="col-span-2 border-t border-slate-700 pt-3 mt-2">
+                  <div className="text-xs text-slate-400 mb-1">Base de Ingreso Total</div>
+                  <div className="text-2xl font-bold text-purple-400">${baseIngreso.toFixed(2)}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-3 mt-3">
+              <p className="text-xs text-purple-300 flex items-start gap-2">
+                <i className="fas fa-info-circle mt-0.5"></i>
+                <span>
+                  Fórmula: ${salaryBase.toFixed(2)} + ${periodExtraPay.toFixed(2)} = ${baseIngreso.toFixed(2)}
+                </span>
+              </p>
+            </div>
+          </div>
+
+          {/* IESS Salud Cónyuge */}
+          <div className="bg-gradient-to-r from-blue-500/10 to-cyan-500/10 rounded-2xl p-5 border border-blue-500/20 mb-4">
+            <div className="flex items-start justify-between mb-3">
+              <div className="flex items-start gap-3">
+                <div className="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center flex-shrink-0 border border-blue-500/30">
+                  <i className="fas fa-hospital text-blue-400 text-xl"></i>
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-white">EXTENSION IESS SALUD CONYUGE</h3>
+                  <p className="text-xs text-slate-400 mt-1">Descuento fijo mensual del 3.41% sobre base de ingreso</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-800/60 rounded-xl p-4 mb-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-xs text-slate-400 mb-1">Base de Ingreso</div>
+                  <div className="text-lg font-bold text-white">${baseIngreso.toFixed(2)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-400 mb-1">Porcentaje</div>
+                  <div className="text-lg font-bold text-blue-400">{iessPercentage}%</div>
+                </div>
+                <div className="col-span-2">
+                  <div className="text-xs text-slate-400 mb-1">Monto Mensual</div>
+                  <div className="text-2xl font-bold text-cyan-400">${iessAmount.toFixed(2)}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 mb-3">
+              <p className="text-xs text-blue-300 flex items-start gap-2">
+                <i className="fas fa-info-circle mt-0.5"></i>
+                <span>
+                  Fórmula: ${baseIngreso.toFixed(2)} × {iessPercentage}% = ${iessAmount.toFixed(2)} mensuales
+                </span>
+              </p>
+            </div>
+
+            <button
+              onClick={handleToggleIESS}
+              className={`w-full py-3 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 ${
+                iessDiscount
+                  ? 'bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-300'
+                  : 'bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white shadow-lg shadow-blue-500/25'
+              }`}
+            >
+              <i className={`fas ${iessDiscount ? 'fa-times-circle' : 'fa-plus-circle'}`}></i>
+              {iessDiscount ? 'Desactivar IESS Salud Cónyuge' : 'Activar IESS Salud Cónyuge'}
+            </button>
+
+            {iessDiscount && (
+              <div className="mt-3 bg-green-500/10 border border-green-500/20 rounded-lg p-3">
+                <p className="text-xs text-green-300 flex items-center gap-2">
+                  <i className="fas fa-check-circle"></i>
+                  <span>IESS Salud Cónyuge activo - Se descontará ${iessAmount.toFixed(2)} mensuales</span>
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Aporte Personal IESS */}
+          <div className="bg-gradient-to-r from-green-500/10 to-emerald-500/10 rounded-2xl p-5 border border-green-500/20 mb-4">
+            <div className="flex items-start justify-between mb-3">
+              <div className="flex items-start gap-3">
+                <div className="w-12 h-12 bg-green-500/20 rounded-xl flex items-center justify-center flex-shrink-0 border border-green-500/30">
+                  <i className="fas fa-user-shield text-green-400 text-xl"></i>
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-white">APORTE PERSONAL IESS</h3>
+                  <p className="text-xs text-slate-400 mt-1">Aporte personal del 9.45% sobre base de ingreso</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-800/60 rounded-xl p-4 mb-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-xs text-slate-400 mb-1">Base de Ingreso</div>
+                  <div className="text-lg font-bold text-white">${baseIngreso.toFixed(2)}</div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-400 mb-1">Porcentaje</div>
+                  <div className="text-lg font-bold text-green-400">{iessAportePercentage}%</div>
+                </div>
+                <div className="col-span-2">
+                  <div className="text-xs text-slate-400 mb-1">Monto Mensual</div>
+                  <div className="text-2xl font-bold text-emerald-400">${iessAporteAmount.toFixed(2)}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3 mb-3">
+              <p className="text-xs text-green-300 flex items-start gap-2">
+                <i className="fas fa-info-circle mt-0.5"></i>
+                <span>
+                  Fórmula: ${baseIngreso.toFixed(2)} × {iessAportePercentage}% = ${iessAporteAmount.toFixed(2)} mensuales
+                </span>
+              </p>
+            </div>
+
+            <button
+              onClick={handleToggleIESSAporte}
+              className={`w-full py-3 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 ${
+                iessAporteDiscount
+                  ? 'bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 text-red-300'
+                  : 'bg-gradient-to-r from-green-600 to-emerald-500 hover:from-green-500 hover:to-emerald-400 text-white shadow-lg shadow-green-500/25'
+              }`}
+            >
+              <i className={`fas ${iessAporteDiscount ? 'fa-times-circle' : 'fa-plus-circle'}`}></i>
+              {iessAporteDiscount ? 'Desactivar Aporte Personal IESS' : 'Activar Aporte Personal IESS'}
+            </button>
+
+            {iessAporteDiscount && (
+              <div className="mt-3 bg-green-500/10 border border-green-500/20 rounded-lg p-3">
+                <p className="text-xs text-green-300 flex items-center gap-2">
+                  <i className="fas fa-check-circle"></i>
+                  <span>Aporte Personal IESS activo - Se descontará ${iessAporteAmount.toFixed(2)} mensuales</span>
+                </p>
+              </div>
+            )}
+          </div>
+
           {!showDiscountForm ? (
             <button
               onClick={() => setShowDiscountForm(true)}
@@ -367,7 +743,7 @@ export function FinancialManager({ bonuses, discounts, onAddBonus, onDeleteBonus
             <form onSubmit={handleAddDiscount} className="bg-slate-800/80 rounded-2xl p-5 border border-rose-500/30">
               <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <i className="fas fa-hand-holding-usd text-rose-400"></i>
-                Nuevo Descuento
+                {editingDiscountId ? 'Editar Descuento' : 'Nuevo Descuento'}
               </h3>
 
               <div className="space-y-4">
@@ -386,7 +762,7 @@ export function FinancialManager({ bonuses, discounts, onAddBonus, onDeleteBonus
                 <div>
                   <label className="block text-sm text-slate-300 mb-1.5">Tipo</label>
                   <div className="grid grid-cols-2 gap-2">
-                    {(['loan', 'rol', 'quirurgico', 'iess', 'iess_aporte', 'other'] as const).map(type => (
+                    {(['loan', 'rol', 'quirurgico', 'other'] as const).map(type => (
                       <button
                         key={type}
                         type="button"
@@ -397,7 +773,7 @@ export function FinancialManager({ bonuses, discounts, onAddBonus, onDeleteBonus
                             : 'bg-slate-700/50 border border-slate-600 text-slate-400'
                         }`}
                       >
-                        {type === 'loan' ? 'Préstamo' : type === 'rol' ? 'Rol' : type === 'quirurgico' ? 'Préstamo Quirúrgico' : type === 'iess' ? 'IESS Salud' : type === 'iess_aporte' ? 'Aporte IESS' : 'Otro'}
+                        {type === 'loan' ? 'Préstamo' : type === 'rol' ? 'Rol' : type === 'quirurgico' ? 'Préstamo Quirúrgico' : 'Otro'}
                       </button>
                     ))}
                   </div>
@@ -457,7 +833,7 @@ export function FinancialManager({ bonuses, discounts, onAddBonus, onDeleteBonus
                     type="submit"
                     className="flex-1 py-3 bg-gradient-to-r from-rose-600 to-pink-500 rounded-xl font-medium text-white shadow-lg transition-all"
                   >
-                    Guardar
+                    {editingDiscountId ? 'Actualizar' : 'Guardar'}
                   </button>
                 </div>
               </div>
@@ -497,6 +873,12 @@ export function FinancialManager({ bonuses, discounts, onAddBonus, onDeleteBonus
                         </div>
                       </div>
                       <div className="flex gap-1">
+                        <button
+                          onClick={() => handleEditDiscount(discount)}
+                          className="w-8 h-8 flex items-center justify-center bg-slate-700/50 hover:bg-blue-500/20 rounded-lg text-slate-400 hover:text-blue-400 transition-all"
+                        >
+                          <i className="fas fa-edit text-xs"></i>
+                        </button>
                         <button
                           onClick={() => onDeleteDiscount(discount.id)}
                           className="w-8 h-8 flex items-center justify-center bg-slate-700/50 hover:bg-red-500/20 rounded-lg text-slate-400 hover:text-red-400 transition-all"
