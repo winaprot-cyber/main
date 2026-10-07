@@ -186,6 +186,18 @@ export function FinancialManager({ records, bonuses, discounts, onAddBonus, onDe
     }
   };
 
+  const formatDiscountType = (type: string) => {
+    const typeLabels: Record<string, string> = {
+      'loan': 'Préstamo',
+      'rol': 'Rol de Pagos',
+      'quirografario': 'Préstamo Quirografario',
+      'iess': 'IESS Salud Cónyuge',
+      'iess_aporte': 'Aporte Personal IESS',
+      'other': 'Otro'
+    };
+    return typeLabels[type] || type;
+  };
+
   const undoPayment = (id: string) => {
     const discount = discounts.find(d => d.id === id);
     if (discount && discount.completedPayments > 0) {
@@ -557,7 +569,7 @@ export function FinancialManager({ records, bonuses, discounts, onAddBonus, onDe
                     <div className="flex items-start justify-between mb-3">
                       <div className="flex-1">
                         <h4 className="font-semibold text-white text-sm">{discount.name}</h4>
-                        <p className="text-xs text-slate-400 mt-1">{discount.type}</p>
+                        <p className="text-xs text-slate-400 mt-1">{formatDiscountType(discount.type)}</p>
                       </div>
                       <button
                         onClick={() => onDeleteDiscount(discount.id)}
