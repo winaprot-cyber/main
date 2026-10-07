@@ -4,11 +4,12 @@ interface Props {
   onExportData: () => void;
   onImportData: () => void;
   onDownloadApp: () => void;
+  onDownloadProject: () => void;
   onChangeTheme: () => void;
   onShowContact: () => void;
 }
 
-export function OptionsMenu({ onExportData, onImportData, onDownloadApp, onChangeTheme, onShowContact }: Props) {
+export function OptionsMenu({ onExportData, onImportData, onDownloadApp, onDownloadProject, onChangeTheme, onShowContact }: Props) {
   const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
@@ -77,6 +78,20 @@ export function OptionsMenu({ onExportData, onImportData, onDownloadApp, onChang
               <div>
                 <div className="text-sm font-medium text-white">Descargar App Offline</div>
                 <div className="text-xs text-slate-400">ZIP completo con todos los archivos</div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => {
+                onDownloadProject();
+                setIsOpen(false);
+              }}
+              className="w-full px-4 py-3 text-left hover:bg-slate-700/50 transition-all flex items-center gap-3"
+            >
+              <i className="fas fa-folder-open text-cyan-400 w-5"></i>
+              <div>
+                <div className="text-sm font-medium text-white">Descargar Proyecto Completo</div>
+                <div className="text-xs text-slate-400">Todos los archivos del proyecto (52 archivos)</div>
               </div>
             </button>
 

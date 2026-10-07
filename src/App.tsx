@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAttendanceStorage } from './hooks/useAttendanceStorage';
 import { getWeeklySummary, getProjection, getWeeklyDataForChart, getMonthlyDataForChart, getWeekNumber } from './utils/calculations';
-import { exportDatabase, importDatabase, downloadOfflineApp } from './utils/database';
+import { exportDatabase, importDatabase, downloadOfflineApp, downloadProjectFiles } from './utils/database';
 import { processMonthChange } from './utils/monthlyBaseCalculator';
 import { AttendanceRecord } from './types';
 import { WeeklyChart } from './components/WeeklyChart';
@@ -116,6 +116,20 @@ export default function App() {
     }
   };
 
+  const handleDownloadProject = async () => {
+    try {
+      const success = await downloadProjectFiles();
+      if (success) {
+        alert('✅ ¡Proyecto completo descargado exitosamente!');
+      } else {
+        alert('❌ Error al descargar el proyecto.');
+      }
+    } catch (error) {
+      console.error('Error al descargar el proyecto:', error);
+      alert('❌ Error al descargar el proyecto.');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 text-white">
       <header className="bg-slate-800/80 backdrop-blur-sm border-b border-blue-500/20 sticky top-0 z-40">
@@ -141,6 +155,7 @@ export default function App() {
                 onExportData={handleExportData}
                 onImportData={handleImportData}
                 onDownloadApp={handleDownloadApp}
+                onDownloadProject={handleDownloadProject}
                 onChangeTheme={() => setShowThemeSelector(true)}
                 onShowContact={() => setShowContactInfo(true)}
               />
