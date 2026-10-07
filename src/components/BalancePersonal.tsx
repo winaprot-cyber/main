@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { PersonalDebt, PersonalExpense, AttendanceRecord, Bonus, MonthlyBalance } from '../types';
 import { format, parseISO, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -63,7 +63,7 @@ export function BalancePersonal({
   const [editingDebtId, setEditingDebtId] = useState<string | null>(null);
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [showMonthlyPaymentsModal, setShowMonthlyPaymentsModal] = useState(false);
-
+  
   // Estados para pagos parciales
   const [showExpensePaymentModal, setShowExpensePaymentModal] = useState<string | null>(null);
   const [expensePaymentAmount, setExpensePaymentAmount] = useState('');
@@ -121,18 +121,30 @@ export function BalancePersonal({
   const handleAddDebt = (e: React.FormEvent) => {
     e.preventDefault();
     const totalAmount = parseFloat(debtTotal);
-    const monthlyPayment = parseFloat(debtMonthly);
+    let monthlyPayment = parseFloat(debtMonthly);
     const interestRate = debtInterest ? parseFloat(debtInterest) : undefined;
     const totalPayments = debtTotalPayments ? parseInt(debtTotalPayments) : undefined;
 
-    if (!debtName.trim() || isNaN(totalAmount) || totalAmount <= 0 || isNaN(monthlyPayment) || monthlyPayment <= 0) return;
+    if (!debtName.trim() || isNaN(totalAmount) || totalAmount <= 0) return;
+
+    if (debtType === 'quirografario' && interestRate && totalPayments && totalPayments > 0) {
+      const monthlyInterestRate = interestRate / 100 / 12;
+      if (monthlyInterestRate > 0) {
+        monthlyPayment = totalAmount * (monthlyInterestRate * Math.pow(1 + monthlyInterestRate, totalPayments)) / 
+                        (Math.pow(1 + monthlyInterestRate, totalPayments) - 1);
+      } else {
+        monthlyPayment = totalAmount / totalPayments;
+      }
+    } else if (isNaN(monthlyPayment) || monthlyPayment <= 0) {
+      return;
+    }
 
     const debt: PersonalDebt = {
       id: editingDebtId || generateId(),
       name: debtName.trim(),
       type: debtType,
       totalAmount,
-      monthlyPayment,
+      monthlyPayment: Math.round(monthlyPayment * 100) / 100,
       interestRate,
       totalPayments,
       completedPayments: 0,
@@ -259,6 +271,28 @@ export function BalancePersonal({
     setShowExpensePaymentModal(null);
     setExpensePaymentAmount('');
     setExpensePaymentNotes('');
+    
+    const receiptDataUrl = generatePaymentReceipt(
+      'expense',
+      expense.name,
+      amount,
+      newPaidAmount,
+      expense.amount,
+      paymentDate,
+      expensePaymentNotes || undefined
+    );
+    
+    setTimeout(() => {
+      const share = confirm('✅ Pago registrado exitosamente\n\n¿Deseas compartir el comprobante por WhatsApp?');
+      if (share) {
+        shareCardWhatsApp(receiptDataUrl, `Pago de Gasto: ${expense.name}`);
+      } else {
+        const download = confirm('¿Deseas descargar el comprobante como imagen?');
+        if (download) {
+          downloadCard(receiptDataUrl, `comprobante-gasto-${expense.name.replace(/\s+/g, '-')}-${format(new Date(), 'yyyy-MM-dd')}.png`);
+        }
+      }
+    }, 500);
   };
 
   const handleDebtPartialPayment = (id: string) => {
@@ -279,6 +313,56 @@ export function BalancePersonal({
     setShowDebtPaymentModal(null);
     setDebtPaymentAmount('');
     setDebtPaymentNotes('');
+    
+    const paymentDate = format(new Date(), 'yyyy-MM-dd');
+    const newPaidAmount = debt.paidAmount + amount;
+    
+    const receiptDataUrl = generatePaymentReceipt(
+      'debt',
+      debt.name,
+      amount,
+      newPaidAmount,
+      debt.totalAmount,
+      paymentDate,
+      debtPaymentNotes || undefined
+    );
+    
+    setTimeout(() => {
+      const share = confirm('✅ Pago registrado exitosamente\n\n¿Deseas compartir el comprobante por WhatsApp?');
+      if (share) {
+        shareCardWhatsApp(receiptDataUrl, `Pago de Deuda: ${debt.name}`);
+      } else {
+        const download = confirm('¿Deseas descargar el comprobante como imagen?');
+        if (download) {
+          downloadCard(receiptDataUrl, `comprobante-deuda-${debt.name.replace(/\s+/g, '-')}-${format(new Date(), 'yyyy-MM-dd')}.png`);
+        }
+      }
+    }, 500);
+  };
+
+  const shareDebtWhatsApp = (debt: PersonalDebt) => {
+    const typeInfo = DEBT_TYPES[debt.type];
+    const pending = debt.totalAmount - debt.paidAmount;
+    const progress = ((debt.paidAmount / debt.totalAmount) * 100).toFixed(1);
+    const monthsRemaining = debt.totalPayments && debt.completedPayments !== undefined
+      ? debt.totalPayments - debt.completedPayments
+      : Math.ceil(pending / debt.monthlyPayment);
+
+    let interestInfo = '';
+    if (debt.type === 'quirografario' && debt.interestRate && debt.totalPayments) {
+      const monthlyRate = debt.interestRate / 100 / 12;
+      const remainingBalance = debt.totalAmount - debt.paidAmount;
+      const interestPayment = remainingBalance * monthlyRate;
+      const capitalPayment = debt.monthlyPayment - interestPayment;
+      const totalInterestPaid = (debt.monthlyPayment * (debt.completedPayments || 0)) - debt.paidAmount;
+      
+      interestInfo = `\n📊 *Desglose del Pago Mensual:*\n   • Interés: $${interestPayment.toFixed(2)}\n   • Capital: $${capitalPayment.toFixed(2)}\n   • Total Interés Pagado: $${Math.max(0, totalInterestPaid).toFixed(2)}`;
+    }
+
+    const message = `💳 *DETALLE DE DEUDA* 💳\n\n📋 *${debt.name}*\n🏷️ Tipo: ${typeInfo.label}\n💰 Monto Total: $${debt.totalAmount.toFixed(2)}\n📅 Pago Mensual: $${debt.monthlyPayment.toFixed(2)}\n${debt.interestRate ? `📊 Tasa de Interés: ${debt.interestRate}% anual\n` : ''}${debt.totalPayments ? `🔢 Número de Pagos: ${debt.completedPayments || 0}/${debt.totalPayments}\n` : ''}✅ Pagado: $${debt.paidAmount.toFixed(2)} (${progress}%)\n⏳ Pendiente: $${pending.toFixed(2)}\n📆 ${debt.totalPayments ? 'Pagos Restantes' : 'Meses Restantes'}: ${monthsRemaining}${interestInfo}\n${debt.notes ? `\n📝 Notas: ${debt.notes}` : ''}\n\n_Generado desde Control de Asistencia HL_`;
+
+    const encodedMessage = encodeURIComponent(message);
+    window.open(`https://wa.me/?text=${encodedMessage}`, '_blank');
   };
 
   const currentMonth = new Date();
@@ -457,23 +541,233 @@ export function BalancePersonal({
                 <i className="fas fa-receipt text-amber-400"></i>
                 {editingExpenseId ? 'Editar Gasto' : 'Nuevo Gasto'}
               </h3>
-              {/* Form content here */}
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={resetExpenseForm}
-                  className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium text-slate-300 transition-all"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-3 bg-gradient-to-r from-amber-600 to-orange-500 rounded-xl font-medium text-white shadow-lg transition-all"
-                >
-                  {editingExpenseId ? 'Actualizar' : 'Guardar'}
-                </button>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm text-slate-300 mb-1.5">Nombre del Gasto</label>
+                  <input
+                    type="text"
+                    value={expenseName}
+                    onChange={(e) => setExpenseName(e.target.value)}
+                    placeholder="Ej: Luz, Internet, Arriendo, etc."
+                    className="w-full bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50 transition-all"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-300 mb-1.5">Categoría</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {Object.entries(EXPENSE_CATEGORIES).map(([category, info]) => (
+                      <button
+                        key={category}
+                        type="button"
+                        onClick={() => setExpenseCategory(category as any)}
+                        className={`py-2.5 rounded-xl text-xs font-medium transition-all flex items-center justify-center gap-2 ${
+                          expenseCategory === category
+                            ? 'bg-amber-500/30 border-amber-500/50 text-amber-300 border'
+                            : 'bg-slate-700/50 border border-slate-600 text-slate-400'
+                        }`}
+                      >
+                        <i className={`fas ${info.icon}`}></i>
+                        {info.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-300 mb-1.5">Monto</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">$</span>
+                    <input
+                      type="number"
+                      value={expenseAmount}
+                      onChange={(e) => setExpenseAmount(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full bg-slate-700/50 border border-slate-600 rounded-xl pl-8 pr-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-amber-500/50 transition-all"
+                      min="0"
+                      step="0.01"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-300 mb-1.5">Frecuencia</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['monthly', 'weekly', 'yearly', 'one_time'] as const).map(freq => (
+                      <button
+                        key={freq}
+                        type="button"
+                        onClick={() => setExpenseFrequency(freq)}
+                        className={`py-2.5 rounded-xl text-xs font-medium transition-all ${
+                          expenseFrequency === freq
+                            ? 'bg-amber-500/30 border-amber-500/50 text-amber-300 border'
+                            : 'bg-slate-700/50 border border-slate-600 text-slate-400'
+                        }`}
+                      >
+                        {freq === 'monthly' ? 'Mensual' : freq === 'weekly' ? 'Semanal' : freq === 'yearly' ? 'Anual' : 'Único'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={resetExpenseForm}
+                    className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium text-slate-300 transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-3 bg-gradient-to-r from-amber-600 to-orange-500 rounded-xl font-medium text-white shadow-lg transition-all"
+                  >
+                    {editingExpenseId ? 'Actualizar' : 'Guardar'}
+                  </button>
+                </div>
               </div>
             </form>
+          )}
+
+          {personalExpenses.length === 0 ? (
+            <div className="bg-slate-800/60 rounded-2xl p-8 border border-slate-700/50 text-center">
+              <i className="fas fa-receipt text-4xl text-slate-600 mb-3"></i>
+              <p className="text-slate-400">No hay gastos registrados</p>
+              <p className="text-xs text-slate-500 mt-1">Agrega gastos fijos como luz, internet, arriendo, etc.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-slate-300 flex items-center gap-2 px-1">
+                <i className="fas fa-list text-amber-400"></i>
+                Gastos Registrados
+              </h4>
+              {personalExpenses.map(expense => {
+                const categoryInfo = EXPENSE_CATEGORIES[expense.category];
+                const frequencyLabel = expense.frequency === 'monthly' ? 'Mensual' :
+                                      expense.frequency === 'weekly' ? 'Semanal' :
+                                      expense.frequency === 'yearly' ? 'Anual' : 'Único';
+                
+                const paidAmount = expense.paidAmount || 0;
+                const netAmount = expense.amount - paidAmount;
+                const paymentProgress = (paidAmount / expense.amount) * 100;
+
+                return (
+                  <div key={expense.id} className="bg-slate-800/60 rounded-xl p-4 border border-slate-700/50">
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-start gap-3 flex-1">
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${categoryInfo.color}20`, border: `1px solid ${categoryInfo.color}40` }}>
+                          <i className={`fas ${categoryInfo.icon}`} style={{ color: categoryInfo.color }}></i>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-semibold text-white text-sm">{expense.name}</h4>
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <span className="text-xs px-2 py-0.5 rounded-full" style={{ backgroundColor: `${categoryInfo.color}20`, color: categoryInfo.color }}>
+                              {categoryInfo.label}
+                            </span>
+                            <span className="text-xs text-slate-500">{frequencyLabel}</span>
+                            {expense.autoRenew && (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300">
+                                <i className="fas fa-sync-alt mr-1"></i>
+                                Auto-Renovar
+                              </span>
+                            )}
+                          </div>
+                          {expense.notes && (
+                            <p className="text-xs text-slate-400 mt-1 italic">{expense.notes}</p>
+                          )}
+                          
+                          {paidAmount > 0 && (
+                            <div className="mt-2 space-y-1">
+                              <div className="flex justify-between text-xs">
+                                <span className="text-slate-400">Pagado:</span>
+                                <span className="text-green-400 font-medium">${paidAmount.toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between text-xs">
+                                <span className="text-slate-400">Pendiente:</span>
+                                <span className="text-rose-400 font-medium">${netAmount.toFixed(2)}</span>
+                              </div>
+                              <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full transition-all"
+                                  style={{ width: `${paymentProgress}%` }}
+                                ></div>
+                              </div>
+                              <div className="text-xs text-slate-500 text-right">
+                                {paymentProgress.toFixed(1)}% pagado
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-2">
+                        <div className="text-right">
+                          {paidAmount > 0 ? (
+                            <>
+                              <div className="text-xs text-slate-500 line-through">${expense.amount.toFixed(2)}</div>
+                              <div className="text-lg font-bold" style={{ color: categoryInfo.color }}>
+                                ${netAmount.toFixed(2)}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="text-lg font-bold" style={{ color: categoryInfo.color }}>
+                              ${expense.amount.toFixed(2)}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => {
+                              const cardDataUrl = generateExpenseCard(expense);
+                              downloadCard(cardDataUrl, `gasto-${expense.name.replace(/\s+/g, '-')}-${format(new Date(), 'yyyy-MM-dd')}.png`);
+                            }}
+                            className="w-8 h-8 flex items-center justify-center bg-cyan-500/20 hover:bg-cyan-500/30 rounded-lg text-cyan-400 transition-all"
+                            title="Descargar ficha"
+                          >
+                            <i className="fas fa-download text-xs"></i>
+                          </button>
+                          <button
+                            onClick={() => {
+                              const cardDataUrl = generateExpenseCard(expense);
+                              shareCardWhatsApp(cardDataUrl, `Gasto: ${expense.name}`);
+                            }}
+                            className="w-8 h-8 flex items-center justify-center bg-green-500/20 hover:bg-green-500/30 rounded-lg text-green-400 transition-all"
+                            title="Compartir por WhatsApp"
+                          >
+                            <i className="fab fa-whatsapp text-xs"></i>
+                          </button>
+                          <button
+                            onClick={() => {
+                              setShowExpensePaymentModal(expense.id);
+                              setExpensePaymentAmount(netAmount.toFixed(2));
+                              setExpensePaymentNotes('');
+                            }}
+                            className="w-8 h-8 flex items-center justify-center bg-green-500/20 hover:bg-green-500/30 rounded-lg text-green-400 transition-all"
+                            title="Registrar pago parcial"
+                          >
+                            <i className="fas fa-money-bill-wave text-xs"></i>
+                          </button>
+                          <button
+                            onClick={() => handleEditExpense(expense)}
+                            className="w-8 h-8 flex items-center justify-center bg-slate-700/50 hover:bg-blue-500/20 rounded-lg text-slate-400 hover:text-blue-400 transition-all"
+                          >
+                            <i className="fas fa-edit text-xs"></i>
+                          </button>
+                          <button
+                            onClick={() => onDeleteExpense(expense.id)}
+                            className="w-8 h-8 flex items-center justify-center bg-slate-700/50 hover:bg-red-500/20 rounded-lg text-slate-400 hover:text-red-400 transition-all"
+                          >
+                            <i className="fas fa-trash text-xs"></i>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       )}
@@ -495,23 +789,328 @@ export function BalancePersonal({
                 <i className="fas fa-hand-holding-usd text-purple-400"></i>
                 {editingDebtId ? 'Editar Deuda' : 'Nueva Deuda'}
               </h3>
-              {/* Form content here */}
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={resetDebtForm}
-                  className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium text-slate-300 transition-all"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-3 bg-gradient-to-r from-purple-600 to-pink-500 rounded-xl font-medium text-white shadow-lg transition-all"
-                >
-                  {editingDebtId ? 'Actualizar' : 'Guardar'}
-                </button>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm text-slate-300 mb-1.5">Nombre de la Deuda</label>
+                  <input
+                    type="text"
+                    value={debtName}
+                    onChange={(e) => setDebtName(e.target.value)}
+                    placeholder="Ej: Préstamo bancario, Tarjeta de crédito, etc."
+                    className="w-full bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-300 mb-1.5">Tipo de Deuda</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {Object.entries(DEBT_TYPES).map(([type, info]) => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => setDebtType(type as any)}
+                        className={`py-2.5 rounded-xl text-xs font-medium transition-all flex items-center justify-center gap-2 ${
+                          debtType === type
+                            ? 'bg-purple-500/30 border-purple-500/50 text-purple-300 border'
+                            : 'bg-slate-700/50 border border-slate-600 text-slate-400'
+                        }`}
+                      >
+                        <i className={`fas ${info.icon}`}></i>
+                        {info.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-300 mb-1.5">Monto Total</label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">$</span>
+                    <input
+                      type="number"
+                      value={debtTotal}
+                      onChange={(e) => setDebtTotal(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full bg-slate-700/50 border border-slate-600 rounded-xl pl-8 pr-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all"
+                      min="0"
+                      step="0.01"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-300 mb-1.5">
+                    Pago Mensual
+                    {debtType === 'quirografario' && debtInterest && debtTotalPayments && (
+                      <span className="text-xs text-amber-400 ml-2">(Se calculará automáticamente)</span>
+                    )}
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">$</span>
+                    <input
+                      type="number"
+                      value={debtMonthly}
+                      onChange={(e) => setDebtMonthly(e.target.value)}
+                      placeholder={debtType === 'quirografario' && debtInterest && debtTotalPayments ? 'Automático' : '0.00'}
+                      className="w-full bg-slate-700/50 border border-slate-600 rounded-xl pl-8 pr-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all"
+                      min="0"
+                      step="0.01"
+                      required={debtType !== 'quirografario' || !debtInterest || !debtTotalPayments}
+                      disabled={debtType === 'quirografario' && !!debtInterest && !!debtTotalPayments}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm text-slate-300 mb-1.5">
+                    Tasa de Interés (% anual)
+                    {debtType === 'quirografario' && <span className="text-xs text-amber-400 ml-2">(Opcional)</span>}
+                  </label>
+                  <input
+                    type="number"
+                    value={debtInterest}
+                    onChange={(e) => setDebtInterest(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all"
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+
+                {debtType === 'quirografario' && (
+                  <div>
+                    <label className="block text-sm text-slate-300 mb-1.5">
+                      Número de Pagos
+                      <span className="text-xs text-amber-400 ml-2">(Para calcular con interés)</span>
+                    </label>
+                    <input
+                      type="number"
+                      value={debtTotalPayments}
+                      onChange={(e) => setDebtTotalPayments(e.target.value)}
+                      placeholder="Ej: 12"
+                      className="w-full bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all"
+                      min="1"
+                      step="1"
+                    />
+                    {debtInterest && debtTotalPayments && debtTotal && (
+                      <div className="mt-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                        <p className="text-xs text-amber-300">
+                          <i className="fas fa-calculator mr-1"></i>
+                          Pago mensual calculado: $
+                          {(() => {
+                            const total = parseFloat(debtTotal);
+                            const rate = parseFloat(debtInterest);
+                            const payments = parseInt(debtTotalPayments);
+                            const monthlyRate = rate / 100 / 12;
+                            if (monthlyRate > 0 && payments > 0) {
+                              const payment = total * (monthlyRate * Math.pow(1 + monthlyRate, payments)) / 
+                                            (Math.pow(1 + monthlyRate, payments) - 1);
+                              return payment.toFixed(2);
+                            }
+                            return (total / payments).toFixed(2);
+                          })()}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm text-slate-300 mb-1.5">Notas (opcional)</label>
+                  <textarea
+                    value={debtNotes}
+                    onChange={(e) => setDebtNotes(e.target.value)}
+                    placeholder="Detalles adicionales..."
+                    rows={2}
+                    className="w-full bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-all resize-none"
+                  />
+                </div>
+
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={resetDebtForm}
+                    className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-medium text-slate-300 transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 py-3 bg-gradient-to-r from-purple-600 to-pink-500 rounded-xl font-medium text-white shadow-lg transition-all"
+                  >
+                    {editingDebtId ? 'Actualizar' : 'Guardar'}
+                  </button>
+                </div>
               </div>
             </form>
+          )}
+
+          {personalDebts.length === 0 ? (
+            <div className="bg-slate-800/60 rounded-2xl p-8 border border-slate-700/50 text-center">
+              <i className="fas fa-hand-holding-usd text-4xl text-slate-600 mb-3"></i>
+              <p className="text-slate-400">No hay deudas registradas</p>
+              <p className="text-xs text-slate-500 mt-1">Agrega deudas bancarias, personales o tarjetas de crédito</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <h4 className="text-sm font-semibold text-slate-300 flex items-center gap-2 px-1">
+                <i className="fas fa-list text-purple-400"></i>
+                Deudas Registradas
+              </h4>
+              {personalDebts.map(debt => {
+                const typeInfo = DEBT_TYPES[debt.type];
+                const pending = debt.totalAmount - debt.paidAmount;
+                const progress = (debt.paidAmount / debt.totalAmount) * 100;
+
+                return (
+                  <div key={debt.id} className="bg-slate-800/60 rounded-xl p-4 border border-slate-700/50">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex items-start gap-3 flex-1">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-${typeInfo.color}-500/20 border border-${typeInfo.color}-500/30`}>
+                          <i className={`fas ${typeInfo.icon} text-${typeInfo.color}-400`}></i>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-semibold text-white text-sm">{debt.name}</h4>
+                          <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <span className={`text-xs px-2 py-0.5 rounded-full bg-${typeInfo.color}-500/20 text-${typeInfo.color}-300`}>
+                              {typeInfo.label}
+                            </span>
+                            {debt.interestRate && (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300">
+                                <i className="fas fa-percentage mr-1"></i>
+                                {debt.interestRate}% interés anual
+                              </span>
+                            )}
+                            {debt.totalPayments && (
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300">
+                                <i className="fas fa-calendar-check mr-1"></i>
+                                {debt.completedPayments || 0}/{debt.totalPayments} pagos
+                              </span>
+                            )}
+                          </div>
+                          {debt.notes && (
+                            <p className="text-xs text-slate-400 mt-1 italic">{debt.notes}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => {
+                            const cardDataUrl = generateDebtCard(debt);
+                            downloadCard(cardDataUrl, `deuda-${debt.name.replace(/\s+/g, '-')}-${format(new Date(), 'yyyy-MM-dd')}.png`);
+                          }}
+                          className="w-8 h-8 flex items-center justify-center bg-cyan-500/20 hover:bg-cyan-500/30 rounded-lg text-cyan-400 transition-all"
+                          title="Descargar ficha"
+                        >
+                          <i className="fas fa-download text-xs"></i>
+                        </button>
+                        <button
+                          onClick={() => {
+                            const cardDataUrl = generateDebtCard(debt);
+                            shareCardWhatsApp(cardDataUrl, `Deuda: ${debt.name}`);
+                          }}
+                          className="w-8 h-8 flex items-center justify-center bg-green-500/20 hover:bg-green-500/30 rounded-lg text-green-400 transition-all"
+                          title="Compartir ficha por WhatsApp"
+                        >
+                          <i className="fas fa-image text-xs"></i>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowDebtPaymentModal(debt.id);
+                            setDebtPaymentAmount(pending.toFixed(2));
+                            setDebtPaymentNotes('');
+                          }}
+                          className="w-8 h-8 flex items-center justify-center bg-green-500/20 hover:bg-green-500/30 rounded-lg text-green-400 transition-all"
+                          title="Registrar pago parcial"
+                        >
+                          <i className="fas fa-money-bill-wave text-xs"></i>
+                        </button>
+                        <button
+                          onClick={() => shareDebtWhatsApp(debt)}
+                          className="w-8 h-8 flex items-center justify-center bg-green-500/20 hover:bg-green-500/30 rounded-lg text-green-400 transition-all"
+                          title="Compartir texto por WhatsApp"
+                        >
+                          <i className="fab fa-whatsapp text-xs"></i>
+                        </button>
+                        <button
+                          onClick={() => handleEditDebt(debt)}
+                          className="w-8 h-8 flex items-center justify-center bg-slate-700/50 hover:bg-blue-500/20 rounded-lg text-slate-400 hover:text-blue-400 transition-all"
+                        >
+                          <i className="fas fa-edit text-xs"></i>
+                        </button>
+                        <button
+                          onClick={() => onDeleteDebt(debt.id)}
+                          className="w-8 h-8 flex items-center justify-center bg-slate-700/50 hover:bg-red-500/20 rounded-lg text-slate-400 hover:text-red-400 transition-all"
+                        >
+                          <i className="fas fa-trash text-xs"></i>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 mb-3">
+                      <div className="bg-slate-700/30 rounded-lg p-2">
+                        <div className="text-[10px] text-slate-500 uppercase">Total</div>
+                        <div className="text-sm font-bold text-white">${debt.totalAmount.toFixed(2)}</div>
+                      </div>
+                      <div className="bg-green-500/10 rounded-lg p-2 border border-green-500/20">
+                        <div className="text-[10px] text-green-400 uppercase">Pagado</div>
+                        <div className="text-sm font-bold text-green-400">${debt.paidAmount.toFixed(2)}</div>
+                      </div>
+                      <div className="bg-rose-500/10 rounded-lg p-2 border border-rose-500/20">
+                        <div className="text-[10px] text-rose-400 uppercase">Pendiente</div>
+                        <div className="text-sm font-bold text-rose-400">${pending.toFixed(2)}</div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-slate-400">Pago mensual</span>
+                        <span className="text-slate-300 font-medium">${debt.monthlyPayment.toFixed(2)}</span>
+                      </div>
+                      <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full transition-all"
+                          style={{ width: `${progress}%` }}
+                        ></div>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-slate-500">{progress.toFixed(1)}% completado</span>
+                        <span className="text-slate-500">
+                          {debt.totalPayments && debt.completedPayments !== undefined
+                            ? `${debt.totalPayments - debt.completedPayments} pagos restantes`
+                            : `${Math.ceil(pending / debt.monthlyPayment)} meses restantes`
+                          }
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2 mt-3 pt-3 border-t border-slate-700/50">
+                      <button
+                        onClick={() => {
+                          setShowDebtPaymentModal(debt.id);
+                          setDebtPaymentAmount(debt.monthlyPayment.toFixed(2));
+                          setDebtPaymentNotes('');
+                        }}
+                        className="flex-1 py-2 bg-green-500/20 hover:bg-green-500/30 border border-green-500/30 rounded-lg text-xs font-medium text-green-300 transition-all flex items-center justify-center gap-1.5"
+                      >
+                        <i className="fas fa-check-circle"></i>
+                        Pagar
+                      </button>
+                      <button
+                        onClick={() => shareDebtWhatsApp(debt)}
+                        className="py-2 px-4 bg-green-600/20 hover:bg-green-600/30 border border-green-600/30 rounded-lg text-xs font-medium text-green-300 transition-all flex items-center justify-center gap-1.5"
+                      >
+                        <i className="fab fa-whatsapp"></i>
+                        Compartir
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       )}
