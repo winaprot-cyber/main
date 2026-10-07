@@ -9,7 +9,7 @@ interface DataPoint {
 }
 
 interface Props {
-   DataPoint[];
+  data: DataPoint[];
   startDate?: string;
   endDate?: string;
 }
