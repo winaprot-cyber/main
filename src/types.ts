@@ -48,7 +48,7 @@ export interface Bonus {
 export interface Discount {
   id: string;
   name: string;
-  type: 'loan' | 'rol' | 'quirurgico' | 'iess' | 'iess_aporte' | 'other';
+  type: 'loan' | 'rol' | 'quirografario' | 'iess' | 'iess_aporte' | 'other';
   totalAmount: number;
   totalPayments: number;
   completedPayments: number;
@@ -62,7 +62,7 @@ export interface Discount {
 export interface PersonalDebt {
   id: string;
   name: string;
-  type: 'bank' | 'personal' | 'credit_card' | 'quirurgico' | 'other';
+  type: 'bank' | 'personal' | 'credit_card' | 'quirografario' | 'other';
   totalAmount: number;
   monthlyPayment: number;
   interestRate?: number;
@@ -72,6 +72,7 @@ export interface PersonalDebt {
   endDate?: string;
   paidAmount: number;
   notes?: string;
+  payments?: Array<{id: string, amount: number, date: string, notes?: string}>;
 }
 
 export interface ExpensePayment {

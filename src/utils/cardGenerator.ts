@@ -17,7 +17,7 @@ const DEBT_TYPES = {
   bank: { label: 'Bancaria', icon: '🏦', color: '#3b82f6' },
   personal: { label: 'Particular', icon: '👤', color: '#8b5cf6' },
   credit_card: { label: 'Tarjeta de Crédito', icon: '💳', color: '#ef4444' },
-  quirurgico: { label: 'Préstamo Quirúrgico', icon: '🏥', color: '#f59e0b' },
+  quirografario: { label: 'Préstamo Quirografario', icon: '📋', color: '#f59e0b' },
   other: { label: 'Otro', icon: '📋', color: '#64748b' }
 };
 

@@ -31,7 +31,7 @@ export function FinancialManager({ records, bonuses, discounts, onAddBonus, onDe
 
   // Discount form state
   const [discountName, setDiscountName] = useState('');
-  const [discountType, setDiscountType] = useState<'loan' | 'rol' | 'quirurgico' | 'iess' | 'iess_aporte' | 'other'>('loan');
+  const [discountType, setDiscountType] = useState<'loan' | 'rol' | 'quirografario' | 'iess' | 'iess_aporte' | 'other'>('loan');
   const [discountTotal, setDiscountTotal] = useState('');
   const [discountPayments, setDiscountPayments] = useState('');
   const [discountPaymentAmount, setDiscountPaymentAmount] = useState('');
@@ -489,7 +489,7 @@ export function FinancialManager({ records, bonuses, discounts, onAddBonus, onDe
                   >
                     <option value="loan">Préstamo</option>
                     <option value="rol">Rol</option>
-                    <option value="quirurgico">Préstamo Quirúrgico</option>
+                    <option value="quirografario">Préstamo Quirografario</option>
                     <option value="other">Otro</option>
                   </select>
                 </div>
