@@ -10,7 +10,8 @@ interface Props {
    DataPoint[];
 }
 
-export function WeeklyChart({ data }: Props) {
+export function WeeklyChart(props: Props) {
+  const data = props.data;
   return (
     <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50">
       <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
