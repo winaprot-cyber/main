@@ -1,10 +1,22 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
-interface Props {
-  onClose: () => void;
-}
+export function WelcomeModal() {
+  const [isVisible, setIsVisible] = useState(false);
 
-export function WelcomeModal({ onClose }: Props) {
+  useEffect(() => {
+    const hasSeenWelcome = localStorage.getItem('hasSeenWelcomeModal');
+    if (!hasSeenWelcome) {
+      setIsVisible(true);
+    }
+  }, []);
+
+  const handleClose = () => {
+    setIsVisible(false);
+    localStorage.setItem('hasSeenWelcomeModal', 'true');
+  };
+
+  if (!isVisible) return null;
+
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-slate-800 rounded-2xl max-w-md w-full border border-slate-700 p-6">
@@ -41,7 +53,7 @@ export function WelcomeModal({ onClose }: Props) {
         </div>
 
         <button
-          onClick={onClose}
+          onClick={handleClose}
           className="w-full py-3 bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 rounded-xl font-semibold text-white transition-all"
         >
           Comenzar
