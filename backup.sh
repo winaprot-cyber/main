@@ -1,103 +1,69 @@
 #!/bin/bash
 
-# 🛡️ Sistema de Backup Automático
-# Control de Asistencia HL - Versión 1.4.9
+# Script de Backup Automático
+# Control de Asistencia HL - v1.4.9
 # Creador by Hugo Leon
 
-echo "🛡️ Iniciando backup automático..."
-echo ""
-
 # Crear directorio de backups si no existe
-mkdir -p .backups
+mkdir -p backups
 
-# Obtener timestamp
+# Obtener fecha y hora actual
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-BACKUP_DIR=".backups/backup_$TIMESTAMP"
+BACKUP_DIR="backups/backup_${TIMESTAMP}"
 
-# Crear directorio de backup
-mkdir -p "$BACKUP_DIR/src/components"
-mkdir -p "$BACKUP_DIR/src/hooks"
-mkdir -p "$BACKUP_DIR/src/utils"
+# Crear directorio de backup específico
+mkdir -p "$BACKUP_DIR/src"
+
+echo "🔄 Iniciando backup del proyecto..."
+echo ""
 
 # Backup de archivos críticos
-echo "📦 Respaldando archivos críticos..."
+echo "📁 Respaldando archivos críticos..."
 
-# Archivos principales
-cp src/App.tsx "$BACKUP_DIR/src/" 2>/dev/null && echo "  ✅ App.tsx" || echo "  ❌ App.tsx no encontrado"
-cp src/main.tsx "$BACKUP_DIR/src/" 2>/dev/null && echo "  ✅ main.tsx" || echo "  ❌ main.tsx no encontrado"
-cp src/types.ts "$BACKUP_DIR/src/" 2>/dev/null && echo "  ✅ types.ts" || echo "  ❌ types.ts no encontrado"
-cp src/index.css "$BACKUP_DIR/src/" 2>/dev/null && echo "  ✅ index.css" || echo "  ❌ index.css no encontrado"
+# Backup de App.tsx (el más importante)
+cp src/App.tsx "$BACKUP_DIR/src/App.tsx" 2>/dev/null && echo "✅ App.tsx respaldado" || echo "⚠️  App.tsx no encontrado"
 
-# Componentes
-for file in src/components/*.tsx; do
-  if [ -f "$file" ]; then
-    cp "$file" "$BACKUP_DIR/src/components/"
-    echo "  ✅ $(basename $file)"
-  fi
-done
+# Backup de todos los componentes
+cp -r src/components "$BACKUP_DIR/src/" 2>/dev/null && echo "✅ Componentes respaldados" || echo "⚠️  Componentes no encontrados"
 
-# Hooks
-for file in src/hooks/*.ts; do
-  if [ -f "$file" ]; then
-    cp "$file" "$BACKUP_DIR/src/hooks/"
-    echo "  ✅ $(basename $file)"
-  fi
-done
+# Backup de utilidades
+cp -r src/utils "$BACKUP_DIR/src/" 2>/dev/null && echo "✅ Utilidades respaldadas" || echo "⚠️  Utilidades no encontradas"
 
-# Utils
-for file in src/utils/*.ts; do
-  if [ -f "$file" ]; then
-    cp "$file" "$BACKUP_DIR/src/utils/"
-    echo "  ✅ $(basename $file)"
-  fi
-done
+# Backup de hooks
+cp -r src/hooks "$BACKUP_DIR/src/" 2>/dev/null && echo "✅ Hooks respaldados" || echo "⚠️  Hooks no encontrados"
 
-# Configuración
-cp package.json "$BACKUP_DIR/" 2>/dev/null && echo "  ✅ package.json" || echo "  ❌ package.json no encontrado"
-cp tsconfig.json "$BACKUP_DIR/" 2>/dev/null && echo "  ✅ tsconfig.json" || echo "  ❌ tsconfig.json no encontrado"
-cp vite.config.js "$BACKUP_DIR/" 2>/dev/null && echo "  ✅ vite.config.js" || echo "  ❌ vite.config.js no encontrado"
+# Backup de archivos de configuración
+cp src/main.tsx "$BACKUP_DIR/src/" 2>/dev/null && echo "✅ main.tsx respaldado" || echo "⚠️  main.tsx no encontrado"
+cp src/types.ts "$BACKUP_DIR/src/" 2>/dev/null && echo "✅ types.ts respaldado" || echo "⚠️  types.ts no encontrado"
+cp src/index.css "$BACKUP_DIR/src/" 2>/dev/null && echo "✅ index.css respaldado" || echo "⚠️  index.css no encontrado"
 
-# Crear archivo de metadata
-cat > "$BACKUP_DIR/BACKUP_INFO.txt" << EOF
-📦 INFORMACIÓN DEL BACKUP
-========================
+# Backup de archivos de configuración del proyecto
+cp package.json "$BACKUP_DIR/" 2>/dev/null && echo "✅ package.json respaldado" || echo "⚠️  package.json no encontrado"
+cp tsconfig.json "$BACKUP_DIR/" 2>/dev/null && echo "✅ tsconfig.json respaldado" || echo "⚠️  tsconfig.json no encontrado"
+cp vite.config.js "$BACKUP_DIR/" 2>/dev/null && echo "✅ vite.config.js respaldado" || echo "⚠️  vite.config.js no encontrado"
+cp index.html "$BACKUP_DIR/" 2>/dev/null && echo "✅ index.html respaldado" || echo "⚠️  index.html no encontrado"
 
-Fecha: $(date)
-Timestamp: $TIMESTAMP
-Versión: 1.4.9
-
-Archivos respaldados:
-- $(find $BACKUP_DIR -type f | wc -l) archivos totales
-
-Estructura:
-$BACKUP_DIR/
-├── src/
-│   ├── App.tsx
-│   ├── main.tsx
-│   ├── types.ts
-│   ├── index.css
-│   ├── components/
-│   ├── hooks/
-│   └── utils/
-├── package.json
-├── tsconfig.json
-└── vite.config.js
-
-Para restaurar:
-./restore.sh $TIMESTAMP
-EOF
+# Backup de documentación
+cp README.md "$BACKUP_DIR/" 2>/dev/null && echo "✅ README.md respaldado" || echo "⚠️  README.md no encontrado"
 
 echo ""
-echo "✅ Backup completado exitosamente"
+echo "✅ Backup completado exitosamente!"
 echo "📁 Ubicación: $BACKUP_DIR"
 echo ""
-echo "💡 Para restaurar este backup, ejecuta:"
-echo "   ./restore.sh $TIMESTAMP"
+
+# Mostrar tamaño del backup
+if [ -d "$BACKUP_DIR" ]; then
+    SIZE=$(du -sh "$BACKUP_DIR" | cut -f1)
+    echo "📊 Tamaño del backup: $SIZE"
+fi
+
+# Listar archivos respaldados
 echo ""
+echo "📋 Archivos respaldados:"
+find "$BACKUP_DIR" -type f | wc -l | xargs echo "Total:"
 
-# Mantener solo los últimos 10 backups
-cd .backups
-ls -dt backup_* | tail -n +11 | xargs -r rm -rf
-cd ..
-
-echo "🗑️  Backups antiguos eliminados (se mantienen los últimos 10)"
+echo ""
+echo "💡 Para restaurar un backup:"
+echo "   cp -r $BACKUP_DIR/src/* src/"
+echo ""
+echo "🔒 Recomendación: Ejecutar este script antes de cambios importantes"
