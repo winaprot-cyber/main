@@ -7,7 +7,7 @@ interface DataPoint {
 }
 
 interface Props {
-   DataPoint[];
+  data: DataPoint[];
 }
 
 export function WeeklyChart(props: Props) {

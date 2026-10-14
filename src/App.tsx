@@ -25,13 +25,14 @@ type Tab = 'registro' | 'historial' | 'reportes' | 'pago' | 'finanzas' | 'balanc
 
 export default function App() {
   const {
-    records, holidays, bonuses, discounts, personalDebts, personalExpenses,
+    records, holidays, bonuses, discounts, personalDebts, personalExpenses, monthlyBalances,
     addRecord, updateRecord, deleteRecord, clearAllRecords,
     addHoliday, deleteHoliday,
     addBonus, deleteBonus,
     addDiscount, updateDiscount, deleteDiscount,
     addPersonalDebt, updatePersonalDebt, deletePersonalDebt,
-    addPersonalExpense, updatePersonalExpense, deletePersonalExpense
+    addPersonalExpense, updatePersonalExpense, deletePersonalExpense,
+    addMonthlyBalance, getMonthlyBalance
   } = useAttendanceStorage();
 
   const [activeTab, setActiveTab] = useState<Tab>('registro');
@@ -259,7 +260,6 @@ export default function App() {
 
         {activeTab === 'finanzas' && (
           <FinancialManager
-            records={records}
             bonuses={bonuses}
             discounts={discounts}
             onAddBonus={addBonus}
@@ -276,12 +276,15 @@ export default function App() {
             personalExpenses={personalExpenses}
             records={records}
             bonuses={bonuses}
+            monthlyBalances={monthlyBalances}
             onAddDebt={addPersonalDebt}
             onUpdateDebt={updatePersonalDebt}
             onDeleteDebt={deletePersonalDebt}
             onAddExpense={addPersonalExpense}
             onUpdateExpense={updatePersonalExpense}
             onDeleteExpense={deletePersonalExpense}
+            onAddMonthlyBalance={addMonthlyBalance}
+            getMonthlyBalance={getMonthlyBalance}
           />
         )}
 
