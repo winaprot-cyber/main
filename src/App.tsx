@@ -1,24 +1,59 @@
 import { useState, useEffect } from 'react';
 import { useAttendanceStorage } from './hooks/useAttendanceStorage';
-import { getWeeklySummary, getProjection, getWeekNumber } from './utils/calculations';
+import { getWeeklySummary, getProjection, getWeeklyDataForChart, getMonthlyDataForChart, getWeekNumber } from './utils/calculations';
 import { exportDatabase, importDatabase } from './utils/database';
 import { processMonthChange } from './utils/monthlyBaseCalculator';
+import { AttendanceRecord } from './types';
+import { WeeklyChart } from './components/WeeklyChart';
+import { MonthlyChart } from './components/MonthlyChart';
+import { RecordForm } from './components/RecordForm';
+import { RecordList } from './components/RecordList';
+import { Summary } from './components/Summary';
+import { ProjectionPanel } from './components/ProjectionPanel';
+import { ProjectionPay } from './components/ProjectionPay';
+import { DecimoCuarto } from './components/DecimoCuarto';
+import { FinancialManager } from './components/FinancialManager';
+import { HolidayManager } from './components/HolidayManager';
+import { BalancePersonal } from './components/BalancePersonal';
+import { OptionsMenu } from './components/OptionsMenu';
+import { ThemeSelector } from './components/ThemeSelector';
+import { ContactInfo } from './components/ContactInfo';
 import { startOfWeek, endOfWeek, addWeeks, format } from 'date-fns';
 import { es } from 'date-fns/locale';
 
-export default function App() {
-  const { records, holidays, bonuses, discounts, personalDebts, personalExpenses, addRecord, updateRecord, deleteRecord, clearAllRecords, addHoliday, deleteHoliday, addBonus, deleteBonus, addDiscount, updateDiscount, deleteDiscount, addPersonalDebt, updatePersonalDebt, deletePersonalDebt, addPersonalExpense, updatePersonalExpense, deletePersonalExpense } = useAttendanceStorage();
+type Tab = 'registro' | 'historial' | 'reportes' | 'pago' | 'finanzas' | 'balance' | 'decimo';
 
-  const [activeTab, setActiveTab] = useState('registro');
-  const [selectedWeekOffset, setSelectedWeekOffset] = useState(0);
+export default function App() {
+  const {
+    records, holidays, bonuses, discounts, personalDebts, personalExpenses,
+    addRecord, updateRecord, deleteRecord, clearAllRecords,
+    addHoliday, deleteHoliday,
+    addBonus, deleteBonus,
+    addDiscount, updateDiscount, deleteDiscount,
+    addPersonalDebt, updatePersonalDebt, deletePersonalDebt,
+    addPersonalExpense, updatePersonalExpense, deletePersonalExpense
+  } = useAttendanceStorage();
+
+  const [activeTab, setActiveTab] = useState<Tab>('registro');
+  const [showForm, setShowForm] = useState(false);
+  const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null);
+  const [selectedWeekOffset, setSelectedWeekOffset] = useState<number>(0);
+  const [showThemeSelector, setShowThemeSelector] = useState(false);
+  const [showContactInfo, setShowContactInfo] = useState(false);
 
   const currentDate = new Date();
   const selectedDate = addWeeks(currentDate, selectedWeekOffset);
   const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 });
   const weekEnd = endOfWeek(selectedDate, { weekStartsOn: 1 });
   const weekNumber = getWeekNumber(selectedDate);
+
+  const payStartDate = localStorage.getItem('asistencia_hl_selected_week_start') || undefined;
+  const payEndDate = localStorage.getItem('asistencia_hl_selected_week_end') || undefined;
+
   const weeklySummary = getWeeklySummary(records, selectedDate);
   const projection = getProjection(records);
+  const weeklyChartData = getWeeklyDataForChart(records, selectedDate);
+  const monthlyChartData = getMonthlyDataForChart(records, payStartDate, payEndDate);
 
   useEffect(() => {
     const salary = parseFloat(localStorage.getItem('asistencia_hl_salary') || '0');
@@ -27,31 +62,53 @@ export default function App() {
     }
   }, [records]);
 
+  const handleEdit = (record: AttendanceRecord) => {
+    setEditingRecord(record);
+    setShowForm(true);
+  };
+
+  const handleSave = (record: AttendanceRecord) => {
+    if (editingRecord) {
+      updateRecord(editingRecord.id, record);
+    } else {
+      addRecord(record);
+    }
+    setShowForm(false);
+    setEditingRecord(null);
+  };
+
+  const handleCancel = () => {
+    setShowForm(false);
+    setEditingRecord(null);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 text-white">
       <header className="bg-slate-800/80 backdrop-blur-sm border-b border-blue-500/20 sticky top-0 z-40">
         <div className="max-w-4xl mx-auto px-4 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-400 rounded-xl flex items-center justify-center">
+              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-cyan-400 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
                 <i className="fas fa-clock text-white text-lg"></i>
               </div>
               <div>
-                <h1 className="text-lg font-bold bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">CONTROL DE ASISTENCIA</h1>
+                <h1 className="text-lg font-bold bg-gradient-to-r from-blue-400 to-cyan-300 bg-clip-text text-transparent">
+                  CONTROL DE ASISTENCIA
+                </h1>
                 <p className="text-xs text-slate-400">Creador by Hugo Leon</p>
               </div>
             </div>
             <div className="flex items-center gap-3">
               <div className="text-right">
-                <div className="text-xs text-slate-400">Semana {weekNumber}</div>
+                <div className="text-xs text-slate-400">Semana actual</div>
                 <div className="text-sm font-semibold text-cyan-300">{weeklySummary.totalHours}h / 45h</div>
               </div>
-              <button onClick={() => exportDatabase()} className="w-10 h-10 bg-slate-700/50 hover:bg-slate-700 rounded-full flex items-center justify-center" title="Exportar">
-                <i className="fas fa-download text-green-400"></i>
-              </button>
-              <button onClick={() => importDatabase()} className="w-10 h-10 bg-slate-700/50 hover:bg-slate-700 rounded-full flex items-center justify-center" title="Importar">
-                <i className="fas fa-upload text-blue-400"></i>
-              </button>
+              <OptionsMenu
+                onExportData={exportDatabase}
+                onImportData={importDatabase}
+                onChangeTheme={() => setShowThemeSelector(true)}
+                onShowContact={() => setShowContactInfo(true)}
+              />
             </div>
           </div>
         </div>
@@ -64,258 +121,236 @@ export default function App() {
               <div className="flex items-center justify-between mb-3">
                 <h3 className="text-sm font-semibold flex items-center gap-2">
                   <i className="fas fa-calendar-week text-cyan-400"></i>
-                  Semana {weekNumber}
+                  Seleccionar Semana
                 </h3>
+                <span className="text-xs bg-cyan-500/20 text-cyan-400 px-2 py-1 rounded-full border border-cyan-500/30">
+                  Semana {weekNumber} del año
+                </span>
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={() => setSelectedWeekOffset(prev => prev - 1)} className="w-10 h-10 bg-slate-700 hover:bg-slate-600 rounded-xl flex items-center justify-center">
-                  <i className="fas fa-chevron-left"></i>
+                <button
+                  onClick={() => setSelectedWeekOffset(prev => prev - 1)}
+                  className="flex-shrink-0 w-10 h-10 bg-slate-700 hover:bg-slate-600 rounded-xl flex items-center justify-center transition-all"
+                >
+                  <i className="fas fa-chevron-left text-slate-300"></i>
                 </button>
                 <div className="flex-1 text-center">
-                  <div className="text-sm font-semibold">{format(weekStart, 'dd MMM', { locale: es })} - {format(weekEnd, 'dd MMM yyyy', { locale: es })}</div>
-                </div>
-                <button onClick={() => setSelectedWeekOffset(prev => prev + 1)} className="w-10 h-10 bg-slate-700 hover:bg-slate-600 rounded-xl flex items-center justify-center">
-                  <i className="fas fa-chevron-right"></i>
-                </button>
-              </div>
-            </div>
-
-            <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50">
-              <h2 className="text-lg font-semibold mb-4">Resumen Semanal</h2>
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <div className="bg-slate-700/40 rounded-xl p-3">
-                  <div className="text-xs text-slate-400">Horas</div>
-                  <div className="text-2xl font-bold">{weeklySummary.totalHours}h</div>
-                </div>
-                <div className="bg-slate-700/40 rounded-xl p-3">
-                  <div className="text-xs text-slate-400">Progreso</div>
-                  <div className="text-2xl font-bold text-cyan-400">{weeklySummary.percentage}%</div>
-                </div>
-              </div>
-              <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-blue-500 to-cyan-400" style={{ width: `${Math.min(100, (weeklySummary.totalHours / 45) * 100)}%` }}></div>
-              </div>
-            </div>
-
-            <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50">
-              <h3 className="text-lg font-semibold mb-4">Proyecciones</h3>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="bg-slate-700/40 rounded-xl p-3 text-center">
-                  <div className="text-2xl font-bold text-blue-400">{projection.weekly}h</div>
-                  <div className="text-xs text-slate-400">Semanal</div>
-                </div>
-                <div className="bg-slate-700/40 rounded-xl p-3 text-center">
-                  <div className="text-2xl font-bold text-cyan-400">{projection.monthly}h</div>
-                  <div className="text-xs text-slate-400">Mensual</div>
-                </div>
-                <div className="bg-slate-700/40 rounded-xl p-3 text-center">
-                  <div className="text-2xl font-bold text-purple-400">{projection.quarterly}h</div>
-                  <div className="text-xs text-slate-400">Trimestral</div>
-                </div>
-              </div>
-            </div>
-
-            <button onClick={() => {
-              const date = prompt('Fecha (YYYY-MM-DD):', format(new Date(), 'yyyy-MM-dd'));
-              if (!date) return;
-              const entry = prompt('Hora entrada:', '08:00');
-              if (!entry) return;
-              const exit = prompt('Hora salida:', '17:00');
-              if (!exit) return;
-              const [eh, em] = entry.split(':').map(Number);
-              const [xh, xm] = exit.split(':').map(Number);
-              const hours = ((xh * 60 + xm) - (eh * 60 + em)) / 60;
-              addRecord({
-                id: Date.now().toString(),
-                date,
-                dayOfWeek: new Date(date).getDay(),
-                entryTime: entry,
-                exitTime: exit,
-                hoursWorked: hours,
-                isWeekend: [0, 6].includes(new Date(date).getDay()),
-                isHoliday: holidays.some(h => h.date === date)
-              });
-              alert('✅ Registro guardado');
-            }} className="w-full py-4 bg-gradient-to-r from-blue-600 to-cyan-500 rounded-2xl font-semibold shadow-lg">
-              <i className="fas fa-plus mr-2"></i>Registrar Asistencia
-            </button>
-          </div>
-        )}
-
-        {activeTab === 'historial' && (
-          <div className="space-y-4">
-            <h2 className="text-lg font-semibold">Historial de Registros</h2>
-            {records.length === 0 ? (
-              <div className="bg-slate-800/60 rounded-2xl p-8 text-center">
-                <i className="fas fa-clipboard-list text-4xl text-slate-600 mb-3"></i>
-                <p className="text-slate-400">No hay registros</p>
-              </div>
-            ) : (
-              records.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(record => (
-                <div key={record.id} className="bg-slate-800/60 rounded-xl p-4 border border-slate-700/50">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <div className="font-semibold">{format(new Date(record.date), 'dd/MM/yyyy')}</div>
-                      <div className="text-sm text-slate-400">{record.entryTime} - {record.exitTime}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xl font-bold text-cyan-400">{record.hoursWorked}h</div>
-                      <button onClick={() => { if (confirm('¿Eliminar?')) deleteRecord(record.id); }} className="text-xs text-red-400 hover:text-red-300">
-                        <i className="fas fa-trash"></i>
-                      </button>
-                    </div>
+                  <div className="text-sm font-semibold text-white">
+                    {format(weekStart, 'dd MMM', { locale: es })} - {format(weekEnd, 'dd MMM yyyy', { locale: es })}
+                  </div>
+                  <div className="text-xs text-slate-400 mt-0.5">
+                    {selectedWeekOffset === 0 ? 'Semana actual' : selectedWeekOffset === -1 ? 'Semana pasada' : `${Math.abs(selectedWeekOffset)} semanas ${selectedWeekOffset < 0 ? 'atrás' : 'adelante'}`}
                   </div>
                 </div>
-              ))
+                <button
+                  onClick={() => setSelectedWeekOffset(prev => prev + 1)}
+                  className="flex-shrink-0 w-10 h-10 bg-slate-700 hover:bg-slate-600 rounded-xl flex items-center justify-center transition-all"
+                >
+                  <i className="fas fa-chevron-right text-slate-300"></i>
+                </button>
+              </div>
+              {selectedWeekOffset !== 0 && (
+                <button
+                  onClick={() => setSelectedWeekOffset(0)}
+                  className="w-full mt-2 py-2 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/30 rounded-lg text-xs font-medium text-cyan-300 transition-all"
+                >
+                  <i className="fas fa-undo mr-1"></i>
+                  Volver a semana actual
+                </button>
+              )}
+            </div>
+
+            <Summary weeklySummary={weeklySummary} weekNumber={weekNumber} />
+
+            <HolidayManager
+              holidays={holidays}
+              onAdd={addHoliday}
+              onDelete={deleteHoliday}
+            />
+
+            {weeklySummary.totalHours > 45 && (
+              <div className="bg-gradient-to-r from-green-500/20 to-emerald-500/20 border border-green-500/30 rounded-2xl p-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-green-500/30 rounded-full flex items-center justify-center">
+                    <i className="fas fa-check-circle text-green-400"></i>
+                  </div>
+                  <div>
+                    <p className="text-green-300 font-semibold text-sm">¡Meta alcanzada!</p>
+                    <p className="text-green-200/70 text-xs">Has trabajado más de 45h esta semana. Desempeño al 100%</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <WeeklyChart data={weeklyChartData} />
+
+            <ProjectionPanel projection={projection} />
+
+            {!showForm ? (
+              <button
+                onClick={() => setShowForm(true)}
+                className="w-full py-4 bg-gradient-to-r from-blue-600 to-cyan-500 rounded-2xl font-semibold text-white shadow-lg shadow-blue-500/25 transition-all flex items-center justify-center gap-2"
+              >
+                <i className="fas fa-plus"></i>
+                Registrar Asistencia
+              </button>
+            ) : (
+              <RecordForm
+                onSave={handleSave}
+                onCancel={handleCancel}
+                editingRecord={editingRecord}
+                existingRecords={records}
+                holidays={holidays}
+              />
             )}
           </div>
         )}
 
-        {activeTab === 'pago' && (
-          <div className="space-y-4">
-            <h2 className="text-lg font-semibold">Cálculo de Pagos</h2>
-            <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50">
-              <div className="space-y-3">
-                <div>
-                  <label className="text-sm text-slate-400">Sueldo Base</label>
-                  <input type="number" defaultValue={localStorage.getItem('asistencia_hl_salary') || '0'} onBlur={(e) => localStorage.setItem('asistencia_hl_salary', e.target.value)} className="w-full bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-2 mt-1" />
-                </div>
-                <div>
-                  <label className="text-sm text-slate-400">Tarifa 100%</label>
-                  <input type="number" step="0.01" defaultValue={localStorage.getItem('asistencia_hl_rate100') || '4.39'} onBlur={(e) => localStorage.setItem('asistencia_hl_rate100', e.target.value)} className="w-full bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-2 mt-1" />
-                </div>
-                <div>
-                  <label className="text-sm text-slate-400">Tarifa 50%</label>
-                  <input type="number" step="0.01" defaultValue={localStorage.getItem('asistencia_hl_rate50') || '3.29'} onBlur={(e) => localStorage.setItem('asistencia_hl_rate50', e.target.value)} className="w-full bg-slate-700/50 border border-slate-600 rounded-xl px-4 py-2 mt-1" />
-                </div>
-              </div>
-            </div>
-            <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50">
-              <h3 className="font-semibold mb-3">Resumen del Mes</h3>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between"><span>Horas trabajadas:</span><span className="font-bold">{projection.monthly}h</span></div>
-                <div className="flex justify-between"><span>Sueldo base:</span><span className="font-bold">${parseFloat(localStorage.getItem('asistencia_hl_salary') || '0').toFixed(2)}</span></div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'finanzas' && (
-          <div className="space-y-4">
-            <h2 className="text-lg font-semibold">Finanzas</h2>
-            <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50">
-              <h3 className="font-semibold mb-3">Bonos ({bonuses.length})</h3>
-              {bonuses.map(b => (
-                <div key={b.id} className="flex justify-between items-center py-2 border-b border-slate-700/50">
-                  <span>{b.name}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-green-400">${b.amount.toFixed(2)}</span>
-                    <button onClick={() => deleteBonus(b.id)} className="text-red-400"><i className="fas fa-trash"></i></button>
-                  </div>
-                </div>
-              ))}
-              <button onClick={() => {
-                const name = prompt('Nombre del bono:');
-                if (!name) return;
-                const amount = parseFloat(prompt('Monto:') || '0');
-                if (amount <= 0) return;
-                addBonus({ id: Date.now().toString(), name, type: 'fixed', amount, startDate: format(new Date(), 'yyyy-MM-dd') });
-              }} className="w-full py-2 mt-3 bg-green-600 hover:bg-green-500 rounded-xl text-sm">
-                <i className="fas fa-plus mr-2"></i>Agregar Bono
-              </button>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'balance' && (
-          <div className="space-y-4">
-            <h2 className="text-lg font-semibold">Balance Personal</h2>
-            <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50">
-              <h3 className="font-semibold mb-3">Gastos ({personalExpenses.length})</h3>
-              {personalExpenses.map(e => (
-                <div key={e.id} className="flex justify-between items-center py-2 border-b border-slate-700/50">
-                  <span>{e.name}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-rose-400">${e.amount.toFixed(2)}</span>
-                    <button onClick={() => deletePersonalExpense(e.id)} className="text-red-400"><i className="fas fa-trash"></i></button>
-                  </div>
-                </div>
-              ))}
-              <button onClick={() => {
-                const name = prompt('Nombre del gasto:');
-                if (!name) return;
-                const amount = parseFloat(prompt('Monto:') || '0');
-                if (amount <= 0) return;
-                addPersonalExpense({ id: Date.now().toString(), name, category: 'other', amount, frequency: 'monthly', startDate: format(new Date(), 'yyyy-MM-dd'), isActive: true });
-              }} className="w-full py-2 mt-3 bg-rose-600 hover:bg-rose-500 rounded-xl text-sm">
-                <i className="fas fa-plus mr-2"></i>Agregar Gasto
-              </button>
-            </div>
-            <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50">
-              <h3 className="font-semibold mb-3">Deudas ({personalDebts.length})</h3>
-              {personalDebts.map(d => (
-                <div key={d.id} className="flex justify-between items-center py-2 border-b border-slate-700/50">
-                  <span>{d.name}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-purple-400">${d.totalAmount.toFixed(2)}</span>
-                    <button onClick={() => deletePersonalDebt(d.id)} className="text-red-400"><i className="fas fa-trash"></i></button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'decimo' && (
-          <div className="space-y-4">
-            <h2 className="text-lg font-semibold">Décimo Cuarto</h2>
-            <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50">
-              <p className="text-slate-400 text-sm mb-4">El décimo se calcula automáticamente el día 1 de cada mes basado en: Sueldo Base + Horas Extras</p>
-              <div className="text-center">
-                <div className="text-3xl font-bold text-emerald-400 mb-2">
-                  ${(parseFloat(localStorage.getItem('asistencia_hl_salary') || '0') * 2).toFixed(2)}
-                </div>
-                <div className="text-sm text-slate-400">Décimo proyectado (2 sueldos)</div>
-              </div>
-            </div>
-          </div>
+        {activeTab === 'historial' && (
+          <RecordList
+            records={records}
+            onEdit={handleEdit}
+            onDelete={deleteRecord}
+            onClearAll={clearAllRecords}
+          />
         )}
 
         {activeTab === 'reportes' && (
-          <div className="space-y-4">
-            <h2 className="text-lg font-semibold">Reportes</h2>
+          <div className="space-y-6">
+            <ProjectionPanel projection={projection} />
+            <WeeklyChart data={weeklyChartData} />
+            <MonthlyChart 
+              data={monthlyChartData} 
+              startDate={payStartDate} 
+              endDate={payEndDate} 
+            />
+            
             <div className="bg-slate-800/60 rounded-2xl p-5 border border-slate-700/50">
-              <h3 className="font-semibold mb-3">Estadísticas</h3>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between"><span>Total registros:</span><span className="font-bold">{records.length}</span></div>
-                <div className="flex justify-between"><span>Horas este mes:</span><span className="font-bold">{projection.monthly}h</span></div>
-                <div className="flex justify-between"><span>Horas este trimestre:</span><span className="font-bold">{projection.quarterly}h</span></div>
-                <div className="flex justify-between"><span>Feriados registrados:</span><span className="font-bold">{holidays.length}</span></div>
-                <div className="flex justify-between"><span>Bonos activos:</span><span className="font-bold">{bonuses.length}</span></div>
+              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <i className="fas fa-chart-pie text-cyan-400"></i>
+                Resumen de Proyección
+              </h3>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-slate-700/40 rounded-xl p-3 text-center">
+                  <div className="text-2xl font-bold text-blue-400">{projection.weekly}h</div>
+                  <div className="text-xs text-slate-400 mt-1">Semanal</div>
+                </div>
+                <div className="bg-slate-700/40 rounded-xl p-3 text-center">
+                  <div className="text-2xl font-bold text-cyan-400">{projection.monthly}h</div>
+                  <div className="text-xs text-slate-400 mt-1">Mensual</div>
+                </div>
+                <div className="bg-slate-700/40 rounded-xl p-3 text-center">
+                  <div className="text-2xl font-bold text-purple-400">{projection.quarterly}h</div>
+                  <div className="text-xs text-slate-400 mt-1">Trimestral</div>
+                </div>
               </div>
             </div>
           </div>
+        )}
+
+        {activeTab === 'pago' && (
+          <ProjectionPay
+            records={records}
+            bonuses={bonuses}
+            discounts={discounts}
+            holidays={holidays}
+          />
+        )}
+
+        {activeTab === 'finanzas' && (
+          <FinancialManager
+            records={records}
+            bonuses={bonuses}
+            discounts={discounts}
+            onAddBonus={addBonus}
+            onDeleteBonus={deleteBonus}
+            onAddDiscount={addDiscount}
+            onUpdateDiscount={updateDiscount}
+            onDeleteDiscount={deleteDiscount}
+          />
+        )}
+
+        {activeTab === 'balance' && (
+          <BalancePersonal
+            personalDebts={personalDebts}
+            personalExpenses={personalExpenses}
+            records={records}
+            bonuses={bonuses}
+            onAddDebt={addPersonalDebt}
+            onUpdateDebt={updatePersonalDebt}
+            onDeleteDebt={deletePersonalDebt}
+            onAddExpense={addPersonalExpense}
+            onUpdateExpense={updatePersonalExpense}
+            onDeleteExpense={deletePersonalExpense}
+          />
+        )}
+
+        {activeTab === 'decimo' && (
+          <DecimoCuarto />
         )}
       </main>
 
       <nav className="fixed bottom-0 left-0 right-0 bg-slate-800/95 backdrop-blur-sm border-t border-slate-700/50 z-40">
         <div className="max-w-4xl mx-auto flex">
-          {[
-            { id: 'registro', icon: 'fa-home', label: 'Inicio' },
-            { id: 'historial', icon: 'fa-history', label: 'Historial' },
-            { id: 'reportes', icon: 'fa-chart-bar', label: 'Reportes' },
-            { id: 'pago', icon: 'fa-money-bill-wave', label: 'Pago' },
-            { id: 'finanzas', icon: 'fa-wallet', label: 'Finanzas' },
-            { id: 'balance', icon: 'fa-balance-scale', label: 'Balance' },
-            { id: 'decimo', icon: 'fa-gift', label: 'Décimo' }
-          ].map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex-1 py-2.5 flex flex-col items-center gap-0.5 ${activeTab === tab.id ? 'text-cyan-400' : 'text-slate-400'}`}>
-              <i className={`fas ${tab.icon} text-base`}></i>
-              <span className="text-[10px]">{tab.label}</span>
-            </button>
-          ))}
+          <button
+            onClick={() => setActiveTab('registro')}
+            className={`flex-1 py-2.5 flex flex-col items-center gap-0.5 transition-all ${activeTab === 'registro' ? 'text-cyan-400' : 'text-slate-400 hover:text-slate-300'}`}
+          >
+            <i className={`fas fa-home text-base ${activeTab === 'registro' ? 'scale-110' : ''} transition-transform`}></i>
+            <span className="text-[10px] font-medium">Inicio</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('historial')}
+            className={`flex-1 py-2.5 flex flex-col items-center gap-0.5 transition-all ${activeTab === 'historial' ? 'text-cyan-400' : 'text-slate-400 hover:text-slate-300'}`}
+          >
+            <i className={`fas fa-history text-base ${activeTab === 'historial' ? 'scale-110' : ''} transition-transform`}></i>
+            <span className="text-[10px] font-medium">Historial</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('reportes')}
+            className={`flex-1 py-2.5 flex flex-col items-center gap-0.5 transition-all ${activeTab === 'reportes' ? 'text-cyan-400' : 'text-slate-400 hover:text-slate-300'}`}
+          >
+            <i className={`fas fa-chart-bar text-base ${activeTab === 'reportes' ? 'scale-110' : ''} transition-transform`}></i>
+            <span className="text-[10px] font-medium">Reportes</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('pago')}
+            className={`flex-1 py-2.5 flex flex-col items-center gap-0.5 transition-all ${activeTab === 'pago' ? 'text-green-400' : 'text-slate-400 hover:text-slate-300'}`}
+          >
+            <i className={`fas fa-money-bill-wave text-base ${activeTab === 'pago' ? 'scale-110' : ''} transition-transform`}></i>
+            <span className="text-[10px] font-medium">Pago</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('finanzas')}
+            className={`flex-1 py-2.5 flex flex-col items-center gap-0.5 transition-all ${activeTab === 'finanzas' ? 'text-emerald-400' : 'text-slate-400 hover:text-slate-300'}`}
+          >
+            <i className={`fas fa-wallet text-base ${activeTab === 'finanzas' ? 'scale-110' : ''} transition-transform`}></i>
+            <span className="text-[10px] font-medium">Finanzas</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('balance')}
+            className={`flex-1 py-2.5 flex flex-col items-center gap-0.5 transition-all ${activeTab === 'balance' ? 'text-amber-400' : 'text-slate-400 hover:text-slate-300'}`}
+          >
+            <i className={`fas fa-balance-scale text-base ${activeTab === 'balance' ? 'scale-110' : ''} transition-transform`}></i>
+            <span className="text-[10px] font-medium">Balance</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('decimo')}
+            className={`flex-1 py-2.5 flex flex-col items-center gap-0.5 transition-all ${activeTab === 'decimo' ? 'text-purple-400' : 'text-slate-400 hover:text-slate-300'}`}
+          >
+            <i className={`fas fa-gift text-base ${activeTab === 'decimo' ? 'scale-110' : ''} transition-transform`}></i>
+            <span className="text-[10px] font-medium">Décimo</span>
+          </button>
         </div>
       </nav>
+
+      {showThemeSelector && (
+        <ThemeSelector onClose={() => setShowThemeSelector(false)} />
+      )}
+
+      {showContactInfo && (
+        <ContactInfo onClose={() => setShowContactInfo(false)} />
+      )}
     </div>
   );
 }
